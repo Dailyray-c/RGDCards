@@ -1,0 +1,1445 @@
+/* ============================================================
+ * 红心大战 · 现代简约扁平风视觉层
+ * 无外部依赖，纯手写 CSS。浅色主题，色块 + 线条。
+ * ============================================================ */
+
+:root {
+  --bg-page: #F4F5F3;
+  --bg-surface: #FFFFFF;
+  --bg-table: #E8EDE6;
+  --bg-sunken: #EEF0EC;
+
+  --text-1: #1F2421;
+  --text-2: #5C645E;
+  --text-3: #8B938C;
+
+  --line-1: rgba(31, 36, 33, 0.10);
+  --line-2: rgba(31, 36, 33, 0.20);
+
+  --red: #C4373A;
+  --red-soft: #FBEDED;
+  --black: #23282A;
+  --accent: #3A6B4C;
+  --accent-soft: #E7F0E9;
+  --warn: #B07417;
+  --warn-soft: #FCF2E0;
+  --danger: #B3383B;
+  --danger-soft: #FBEBEB;
+
+  /* 亮牌（卖牌）：暖金调，与传牌的绿调区分开 */
+  --sell: #B07417;
+  --sell-soft: #FCF2E0;
+
+  --r-sm: 6px;
+  --r-md: 10px;
+  --r-lg: 14px;
+  --r-xl: 18px;
+
+  --card-w: 62px;
+  --card-h: 88px;
+  --shadow-card: 0 1px 2px rgba(31, 36, 33, 0.06), 0 4px 12px rgba(31, 36, 33, 0.05);
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC",
+               "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+  font-size: 14px;
+  line-height: 1.6;
+  color: var(--text-1);
+  background: var(--bg-page);
+  -webkit-font-smoothing: antialiased;
+}
+
+button { font-family: inherit; cursor: pointer; }
+
+/* ============================================================
+ * 顶部栏
+ * ============================================================ */
+.topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 12px 22px;
+  background: var(--bg-surface);
+  border-bottom: 1px solid var(--line-1);
+}
+
+.brand { display: flex; align-items: baseline; gap: 10px; }
+
+.brand-mark {
+  width: 10px; height: 10px;
+  border-radius: 2px;
+  background: var(--red);
+  transform: rotate(45deg);
+  flex-shrink: 0;
+  align-self: center;
+}
+
+.brand h1 { font-size: 16px; font-weight: 500; margin: 0; letter-spacing: .01em; }
+.brand .sub { font-size: 12px; color: var(--text-3); }
+
+.topbar-right { display: flex; align-items: center; gap: 10px; }
+
+.seg {
+  display: flex;
+  background: var(--bg-sunken);
+  border-radius: var(--r-md);
+  padding: 3px;
+  gap: 2px;
+}
+
+.seg button {
+  border: 0;
+  background: transparent;
+  color: var(--text-2);
+  font-size: 12.5px;
+  padding: 5px 13px;
+  border-radius: 7px;
+  transition: background .12s, color .12s;
+}
+
+.seg button.on {
+  background: var(--bg-surface);
+  color: var(--text-1);
+  box-shadow: 0 1px 2px rgba(31, 36, 33, .08);
+}
+
+.btn {
+  border: 1px solid var(--line-2);
+  background: var(--bg-surface);
+  color: var(--text-1);
+  font-size: 12.5px;
+  padding: 6px 14px;
+  border-radius: var(--r-md);
+  transition: background .12s, border-color .12s;
+}
+
+.btn:hover { background: var(--bg-sunken); border-color: var(--line-2); }
+
+.btn-primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+  font-weight: 500;
+}
+
+.btn-primary:hover { background: #315C41; border-color: #315C41; }
+
+.btn:disabled { opacity: .4; cursor: not-allowed; }
+
+/* ============================================================
+ * 主布局
+ * ============================================================ */
+.layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 268px;
+  gap: 16px;
+  padding: 16px 22px 22px;
+  max-width: 1400px;
+  margin: 0 auto;
+  align-items: start;
+}
+
+/* ============================================================
+ * 牌桌
+ * ============================================================ */
+.table-wrap { position: relative; }
+
+.table {
+  background: var(--bg-table);
+  border-radius: var(--r-xl);
+  padding: 18px;
+  min-height: 640px;
+  display: grid;
+  grid-template-columns: 176px minmax(0, 1fr) 176px;
+  grid-template-rows: auto auto minmax(260px, 1fr) auto;
+  grid-template-areas:
+    "sold   sold   sold"
+    ".      north  ."
+    "west   center east"
+    ".      south  .";
+  gap: 10px 14px;
+  position: relative;
+  overflow: hidden;
+  align-items: center;
+}
+
+/* 桌面细微网格纹理，替代渐变 */
+.table::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background-image:
+    linear-gradient(to right, rgba(31,36,33,.028) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(31,36,33,.028) 1px, transparent 1px);
+  background-size: 26px 26px;
+  pointer-events: none;
+}
+
+.table > * { position: relative; }
+
+/* ---------- 座位 ---------- */
+.seat-north { grid-area: north; justify-self: center; }
+.seat-west  { grid-area: west;  justify-self: start; }
+.seat-east  { grid-area: east;  justify-self: end; }
+.center     { grid-area: center; }
+.hand-area  { grid-area: south; align-self: end; }
+
+/* ============================================================
+ * 公开亮牌板（第 9 轮）
+ *
+ * ⚠️ 与「已获得的牌」严格区分，**不要合并**：
+ *   · 亮牌板 = 开局时各家亮出的**赌注宣告**，全局公开、固定不变
+ *   · 已获得的牌 = 收墩后**实际收到**的牌，随牌局推进增长
+ *
+ * ⚠️ 必须占用 grid 的独立一行（grid-area: sold），
+ *    不能用绝对定位钉在牌桌顶部 —— 顶部是 AI 北的座位，
+ *    绝对定位会让亮牌板**压在 AI 北的座位框上**（实测过）。
+ *    占用独立行时，`hidden` 状态下 `.table > *` 仍占位，
+ *    所以额外用 `display:none` 折叠行高，避免空出一块。
+ * ============================================================ */
+.sold-board {
+  grid-area: sold;
+  justify-self: center;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  max-width: 100%;
+  padding: 5px 12px;
+  border-radius: 999px;
+  background: var(--sell-soft);
+  border: 1px solid rgba(176, 116, 23, .34);
+  box-shadow: 0 1px 3px rgba(31, 36, 33, .07);
+}
+
+/* hidden 时彻底折叠，否则 grid 行仍留一个 gap 的高度 */
+.sold-board[hidden] { display: none; }
+
+.sold-board-title {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--sell);
+  letter-spacing: .3px;
+  flex-shrink: 0;
+  padding-right: 9px;
+  border-right: 1px solid rgba(176, 116, 23, .28);
+}
+
+.sold-board-list {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  flex-wrap: wrap;
+}
+
+.sold-chip {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: var(--bg-surface);
+  border: 1px solid rgba(176, 116, 23, .3);
+  font-size: 11px;
+  line-height: 1.5;
+  white-space: nowrap;
+}
+
+/* 自己亮的牌放大一圈，便于一眼定位 */
+.sold-chip.mine {
+  border-color: var(--sell);
+  box-shadow: 0 0 0 2px rgba(176, 116, 23, .2);
+}
+
+.sold-chip-who {
+  color: var(--text-3);
+  font-size: 10.5px;
+}
+
+.sold-chip-card {
+  font-weight: 600;
+  color: var(--black);
+}
+.sold-chip-card.red { color: var(--red); }
+
+.sold-chip-delta {
+  color: var(--sell);
+  font-size: 10.5px;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ============================================================
+ * 已获得的牌（第 9 轮）
+ *
+ * 两个模式都显示。贴在**各家座位下方**（自己在手牌区下方），
+ * 与顶部的亮牌板拉开距离，避免混淆。
+ * ============================================================ */
+.won-row {
+  margin-top: 7px;
+  padding-top: 6px;
+  border-top: 1px dashed var(--line-1);
+}
+
+/* ⚠️ 必须显式 display:none —— `[hidden]` 默认只给 display:none，
+ *    但下面给 .won-row 设了 display:flex，会**盖掉** hidden 的默认样式，
+ *    导致隐藏时仍渲染出一条虚线分隔线。 */
+.won-row[hidden] { display: none; }
+
+/* 左右两侧座位窄（156px），需要换行 */
+.seat-side .won-row { max-width: 156px; }
+
+.won-row-me {
+  margin-top: 10px;
+  border-top: 1px dashed var(--line-1);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  justify-content: center;
+}
+
+.won-label {
+  font-size: 10.5px;
+  color: var(--text-3);
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.won-cards {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 3px;
+  margin-top: 4px;
+}
+
+.won-row-me .won-cards { margin-top: 0; }
+
+.won-card {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 1px;
+  padding: 1px 4px;
+  border-radius: 3px;
+  background: var(--bg-surface);
+  border: 1px solid var(--line-1);
+  font-size: 10.5px;
+  line-height: 1.45;
+  font-variant-numeric: tabular-nums;
+  cursor: default;
+}
+.won-card.red { color: var(--red); }
+.won-card.black { color: var(--text-2); }
+
+/* 有分值的牌加底色，一眼看出"收到了要紧的" */
+.won-card.has-points {
+  background: var(--bg-sunken);
+  border-color: var(--line-2);
+  font-weight: 600;
+}
+
+/* 已亮的牌用金色描边 —— 与手牌上的「亮」角标同一套语义。
+ * ⚠️ 只改边框与底色，**不要改 color** —— 改了就丢掉红/黑花色身份，
+ *    玩家分不清收到的到底是不是红桃。 */
+.won-card.is-sold-card {
+  border-color: var(--sell);
+  background: var(--sell-soft);
+  box-shadow: 0 0 0 1px rgba(176, 116, 23, .28);
+}
+
+.won-rank { font-weight: 600; }
+.won-suit { font-size: 9.5px; }
+
+.seat {
+  background: var(--bg-surface);
+  border: 1px solid var(--line-1);
+  border-radius: var(--r-md);
+  padding: 9px 13px;
+  min-width: 156px;
+  transition: border-color .15s, background .15s;
+}
+
+/* 左右两侧座位：定宽，内容纵向排列 */
+.seat-side { min-width: 0; width: 156px; }
+
+.seat-side .seat-head { justify-content: flex-start; }
+
+.seat-side .seat-tag-row {
+  display: flex;
+  margin-top: 6px;
+}
+
+.seat-side .seat-meta { margin-top: 5px; }
+
+.seat.active {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.seat-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.seat-name { font-size: 13px; font-weight: 500; }
+
+.seat-tag {
+  font-size: 11px;
+  color: var(--text-3);
+  border: 1px solid var(--line-1);
+  border-radius: 4px;
+  padding: 0 5px;
+  line-height: 16px;
+}
+
+.seat-tag-row { margin-top: 5px; }
+
+.seat.active .seat-tag { color: var(--accent); border-color: var(--accent); }
+
+.seat-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 4px;
+  font-size: 12px;
+  color: var(--text-2);
+}
+
+.pill {
+  font-size: 11.5px;
+  padding: 1px 7px;
+  border-radius: 5px;
+  background: var(--bg-sunken);
+  color: var(--text-2);
+  white-space: nowrap;
+}
+
+.pill.red { background: var(--red-soft); color: var(--red); }
+.pill.warn { background: var(--warn-soft); color: var(--warn); }
+.pill.ok { background: var(--accent-soft); color: var(--accent); }
+
+/* 手牌背面缩略（表示对手剩余牌数） */
+.mini-hand { display: flex; gap: 2px; margin-top: 7px; }
+
+/* 左右座位：牌背横向排列更省高度，超出则换行 */
+.mini-vertical { flex-wrap: wrap; max-width: 132px; }
+
+.mini-back {
+  width: 11px; height: 16px;
+  border-radius: 2px;
+  background: var(--bg-sunken);
+  border: 1px solid var(--line-2);
+  flex-shrink: 0;
+}
+
+/* ---------- 中央出牌区 ---------- */
+.center {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 8px 0;
+}
+
+/* 按座位真实方位排布出牌位：西 北 东 在上，你在下 */
+.trick-area {
+  display: grid;
+  grid-template-columns: 88px 88px 88px;
+  grid-template-rows: auto auto;
+  grid-template-areas:
+    "nw n ne"
+    ".  s .";
+  gap: 8px 6px;
+  place-items: center;
+}
+
+.pos-nw { grid-area: nw; }
+.pos-n  { grid-area: n; }
+.pos-ne { grid-area: ne; }
+.pos-s  { grid-area: s; }
+
+.slot-cell {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
+
+.slot {
+  width: 84px; height: 108px;
+  border-radius: var(--r-md);
+  border: 1px dashed var(--line-2);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11.5px;
+  color: var(--text-3);
+  position: relative;
+}
+
+.slot.filled { border-style: solid; border-color: transparent; }
+
+.slot-label {
+  font-size: 11px;
+  color: var(--text-3);
+  white-space: nowrap;
+}
+
+.trick-note {
+  font-size: 12.5px;
+  color: var(--text-2);
+  text-align: center;
+  min-height: 20px;
+}
+
+/* ---------- 牌 ---------- */
+.card {
+  width: var(--card-w);
+  height: var(--card-h);
+  border-radius: var(--r-sm);
+  background: var(--bg-surface);
+  border: 1px solid var(--line-2);
+  position: relative;
+  padding: 0;
+  user-select: none;
+  transition: transform .12s ease, border-color .12s, opacity .12s;
+  overflow: hidden;
+}
+
+.card.red { color: var(--red); }
+.card.black { color: var(--black); }
+
+/* 角标：点数在上、花色紧贴其下，垂直排列 —— 数字位于最左上角 */
+.card-corner {
+  position: absolute;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  line-height: 1;
+  gap: 0;
+  z-index: 2;
+}
+
+.card-corner.tl { top: 3px; left: 4px; }
+
+/* 右下角反向 180°，形成上下对称的经典布局 */
+.card-corner.br { bottom: 3px; right: 4px; transform: rotate(180deg); }
+
+.card-rank {
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: -.03em;
+  /* 固定行高，避免不同字符（10 / J / Q）导致角标高度跳动 */
+  line-height: 13px;
+  height: 13px;
+  display: block;
+}
+
+.card-suit-sm { width: 9px; height: 9px; display: block; margin-top: 1px; }
+
+/* 中央花色：真正居中，颜色加深作为主视觉 */
+.card-suit-big {
+  position: absolute;
+  top: 50%; left: 50%;
+  width: 56%; height: 56%;
+  transform: translate(-50%, -50%);
+  opacity: .78;
+}
+
+/* 出牌区的牌略大（角标同比放大） */
+.slot .card { width: 80px; height: 104px; }
+.slot .card .card-rank { font-size: 16px; line-height: 16px; height: 16px; }
+.slot .card .card-suit-sm { width: 11px; height: 11px; }
+
+/* ---------- 首引标记 ----------
+ * 每墩第一张落桌的牌带上「首引」角标，方便一眼看出本墩是谁开的头、
+ * 该跟什么花色。只做描边与角标，不改尺寸，避免影响出牌区布局。
+ */
+.slot .card.is-lead {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px rgba(58, 107, 76, .22);
+}
+
+.lead-tag {
+  position: absolute;
+  left: 50%;
+  bottom: 4px;
+  transform: translateX(-50%);
+  background: var(--accent);
+  color: #fff;
+  font-size: 10px;
+  line-height: 1;
+  padding: 3px 6px;
+  border-radius: 999px;
+  white-space: nowrap;
+  letter-spacing: .04em;
+  z-index: 4;
+  pointer-events: none;
+}
+
+/* 手牌区 */
+.hand-area {
+  background: var(--bg-surface);
+  border: 1px solid var(--line-1);
+  border-radius: var(--r-lg);
+  padding: 12px 14px 10px;
+}
+
+.hand-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+
+.hand-title { font-size: 13px; font-weight: 500; }
+.hand-hint { font-size: 12px; color: var(--text-3); }
+
+.hand-cards {
+  display: flex;
+  flex-wrap: nowrap;
+  gap: 6px;
+  min-height: var(--card-h);
+  align-items: flex-end;
+  justify-content: center;
+  /* 13 张牌始终排成一行：空间不够时靠负 margin 叠压，而不是折行 */
+  padding-top: 16px;
+}
+
+/* 空间不足时逐级收窄间距，保证 13 张牌一行放得下。
+ * 注意：叠压幅度不能超过「卡宽 - 角标宽度」，否则右侧牌的左上角点数会压到
+ * 左侧牌的右下角点数上，小屏下两个数字看起来糊在一起。
+ * 用 calc 相对卡宽计算，窄屏卡片变小时叠压幅度同步变小。 */
+@media (max-width: 1440px) {
+  .hand-cards { gap: 4px; }
+}
+@media (max-width: 1240px) {
+  .hand-cards { gap: 0; }
+  .hand-cards .card:not(:first-child) { margin-left: calc(var(--card-w) * -0.16); }
+}
+@media (max-width: 1080px) {
+  .hand-cards .card:not(:first-child) { margin-left: calc(var(--card-w) * -0.26); }
+}
+@media (max-width: 900px) {
+  .hand-cards .card:not(:first-child) { margin-left: calc(var(--card-w) * -0.34); }
+  /* 小屏叠压时必须隐藏右下角反向角标，否则两牌接缝处数字重叠 */
+  .hand-cards .card .card-corner.br { display: none; }
+}
+
+/* 小屏：角标同步缩小，保证点数在 48px 卡宽下仍完整可读 */
+@media (max-width: 720px) {
+  .hand-cards .card .card-rank { font-size: 12px; line-height: 12px; height: 12px; }
+  .hand-cards .card .card-suit-sm { width: 8px; height: 8px; }
+  .hand-cards .card .card-corner.tl { top: 3px; left: 3px; }
+  /* 卡片本身也变小了，中央花色必须同比收小，否则会压到左上角标 */
+  .card-suit-big { width: 44%; height: 44%; }
+}
+
+.hand-cards .card.playable { cursor: pointer; }
+
+/* 叠牌时保证悬停/选中的牌浮到最上层，不被右侧邻居盖住 */
+.hand-cards .card:hover,
+.hand-cards .card.picked { z-index: 3; }
+
+.hand-cards .card.playable:hover {
+  transform: translateY(-8px);
+  border-color: var(--accent);
+}
+
+.hand-cards .card.blocked {
+  opacity: .45;
+  cursor: not-allowed;
+  filter: saturate(.35);
+}
+
+.hand-cards .card.blocked:hover { transform: none; }
+
+/* 不可出的牌：右下角折角标记，比单靠透明度更明确 */
+.hand-cards .card.blocked::after {
+  content: "";
+  position: absolute;
+  right: 0; bottom: 0;
+  border-width: 0 0 13px 13px;
+  border-style: solid;
+  border-color: transparent transparent var(--line-2) transparent;
+}
+
+.hand-cards .card.picked {
+  transform: translateY(-12px);
+  border-color: var(--accent);
+  box-shadow: 0 0 0 1.5px var(--accent);
+}
+/* ---------- 提示条 ---------- */
+.hintbar {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  background: var(--warn-soft);
+  border: 1px solid rgba(176, 116, 23, .28);
+  color: #6E4A0E;
+  border-radius: var(--r-md);
+  padding: 8px 13px;
+  font-size: 12.5px;
+  min-height: 36px;
+}
+
+.hintbar.ok { background: var(--accent-soft); border-color: rgba(58,107,76,.28); color: #2C5239; }
+.hintbar.err { background: var(--danger-soft); border-color: rgba(179,56,59,.3); color: #7C2A2C; }
+
+.hint-dot {
+  width: 5px; height: 5px;
+  border-radius: 50%;
+  background: currentColor;
+  flex-shrink: 0;
+}
+
+/* ============================================================
+ * 右侧栏
+ * ============================================================ */
+.sidebar { display: flex; flex-direction: column; gap: 12px; }
+
+.panel {
+  background: var(--bg-surface);
+  border: 1px solid var(--line-1);
+  border-radius: var(--r-lg);
+  padding: 13px 15px 15px;
+}
+
+.panel-title {
+  font-size: 13px;
+  font-weight: 500;
+  margin: 0 0 11px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.panel-title .sub { font-size: 11.5px; color: var(--text-3); font-weight: 400; }
+
+/* 计分表 */
+.score-table { width: 100%; border-collapse: collapse; }
+
+.score-table th {
+  font-size: 11.5px;
+  font-weight: 400;
+  color: var(--text-3);
+  text-align: right;
+  padding: 0 0 6px;
+  border-bottom: 1px solid var(--line-1);
+}
+
+.score-table th:first-child { text-align: left; }
+
+.score-table td {
+  font-size: 13px;
+  padding: 7px 0;
+  text-align: right;
+  border-bottom: 1px solid var(--line-1);
+  vertical-align: top;
+}
+
+.score-table td:first-child { text-align: left; }
+
+.score-table tr:last-child td { border-bottom: 0; }
+
+.score-table tr.me td { font-weight: 500; }
+
+.score-table tr.me td:first-child::before {
+  content: "";
+  display: inline-block;
+  width: 4px; height: 4px;
+  border-radius: 50%;
+  background: var(--accent);
+  margin-right: 6px;
+  vertical-align: middle;
+}
+
+.score-num { font-variant-numeric: tabular-nums; }
+
+/* 进度条独立成行，不与数字抢同一行 */
+.score-cell { display: flex; flex-direction: column; align-items: flex-end; gap: 3px; }
+
+.score-bar {
+  width: 100%;
+  max-width: 76px;
+  height: 3px;
+  background: var(--bg-sunken);
+  border-radius: 2px;
+  overflow: hidden;
+  flex-shrink: 0;
+}
+
+.score-bar span { display: block; height: 100%; background: var(--accent); }
+
+/* 拱猪专用：进度条表示「欠分距离出局线还有多远」，越满越危险。
+ *
+ * ⚠️ 颜色语义：拱猪里绿色 = 正分 / 安全，用它画"欠分进度条"会让人误读成
+ *    "很安全"。所以这里三档全部走暖→红：灰（还有余量）→ 橙（过半）→ 红（临界）。
+ *    见 _r8_F 截图：-780 应偏红、-320 应是中性灰。 */
+.score-bar.is-gz        span { background: var(--text-3); }
+.score-bar.is-warn      span { background: var(--warn); }
+.score-bar.is-danger    span { background: var(--danger); }
+
+/* 本局信息 */
+.info-list { display: flex; flex-direction: column; gap: 8px; }
+
+.info-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  font-size: 12.5px;
+}
+
+.info-row .k { color: var(--text-2); }
+.info-row .v { color: var(--text-1); font-weight: 500; }
+
+/* 牌局日志 */
+.log-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 190px;
+  overflow-y: auto;
+  margin: -3px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.log-list li {
+  font-size: 12px;
+  color: var(--text-2);
+  padding-left: 11px;
+  position: relative;
+}
+
+.log-list li::before {
+  content: "";
+  position: absolute;
+  left: 0; top: 8px;
+  width: 3px; height: 3px;
+  border-radius: 50%;
+  background: var(--text-3);
+}
+
+.log-list li.hot { color: var(--red); }
+.log-list li.hot::before { background: var(--red); }
+
+/* 规则说明 */
+.rules { font-size: 12px; color: var(--text-2); }
+.rules p { margin: 0 0 7px; }
+.rules b { color: var(--text-1); font-weight: 500; }
+
+/* ============================================================
+ * 弹窗
+ * ============================================================ */
+.overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(31, 36, 33, .38);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  z-index: 100;
+}
+
+.overlay[hidden] { display: none; }
+
+.modal {
+  background: var(--bg-surface);
+  border-radius: var(--r-xl);
+  width: 100%;
+  max-width: 460px;
+  padding: 24px 26px 22px;
+  box-shadow: 0 12px 40px rgba(31, 36, 33, .18);
+  max-height: 88vh;
+  overflow-y: auto;
+}
+
+.modal h2 { font-size: 17px; font-weight: 500; margin: 0 0 5px; }
+.modal .lead { font-size: 13px; color: var(--text-2); margin: 0 0 18px; }
+
+.modal-actions {
+  display: flex;
+  gap: 9px;
+  justify-content: flex-end;
+  margin-top: 20px;
+}
+
+/* 难度选项 */
+.opt-list { display: flex; flex-direction: column; gap: 8px; }
+
+.opt {
+  display: flex;
+  align-items: flex-start;
+  gap: 11px;
+  border: 1px solid var(--line-1);
+  border-radius: var(--r-md);
+  padding: 11px 13px;
+  text-align: left;
+  background: var(--bg-surface);
+  width: 100%;
+  transition: border-color .12s, background .12s;
+}
+
+.opt:hover { border-color: var(--line-2); }
+
+.opt.on {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.opt-radio {
+  width: 15px; height: 15px;
+  border-radius: 50%;
+  border: 1.5px solid var(--line-2);
+  flex-shrink: 0;
+  margin-top: 2px;
+  position: relative;
+  transition: border-color .12s;
+}
+
+.opt.on .opt-radio { border-color: var(--accent); }
+
+.opt.on .opt-radio::after {
+  content: "";
+  position: absolute;
+  inset: 3px;
+  border-radius: 50%;
+  background: var(--accent);
+}
+
+.opt-body { flex: 1; min-width: 0; }
+.opt-name { font-size: 13.5px; font-weight: 500; }
+.opt-desc { font-size: 12px; color: var(--text-2); }
+
+/* ============================================================
+ * 传牌弹窗
+ * ============================================================ */
+.modal .lead b { color: var(--text-1); font-weight: 500; }
+
+.pass-target {
+  color: var(--accent);
+  background: var(--accent-soft);
+  padding: 1px 7px;
+  border-radius: 4px;
+  white-space: nowrap;
+}
+
+.pass-target-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  background: var(--bg-sunken);
+  border-radius: var(--r-md);
+  padding: 8px 12px;
+  margin-bottom: 12px;
+}
+
+.pass-target-label {
+  font-size: 12.5px;
+  font-weight: 500;
+  color: var(--accent);
+}
+
+/* 传牌候选：选中态用更深底色 + 强调边框，一眼可辨 */
+.pass-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  justify-content: center;
+  padding: 4px 0;
+}
+
+.pass-grid .card {
+  cursor: pointer;
+  transition: transform .14s ease, box-shadow .14s ease,
+              border-color .14s, background .14s;
+}
+
+.pass-grid .card:hover {
+  transform: translateY(-5px);
+  border-color: var(--accent);
+}
+
+.pass-grid .card.picked {
+  /* 不加向上位移：牌是紧密并排的，上弹会被上一行/相邻牌遮住。
+   * 选中反馈只靠「描边 + 底色 + 勾选标记 + 轻微放大」，层次清楚又不挡牌。 */
+  transform: scale(1.03);
+  border-color: var(--accent);
+  border-width: 2px;
+  background: var(--accent-soft);
+  box-shadow: 0 0 0 3px rgba(58, 107, 76, .16),
+              0 3px 8px rgba(31, 36, 33, .12);
+  z-index: 2;
+}
+
+/* 选中态：牌面文字加深，形成明确对比 */
+.pass-grid .card.picked .card-rank { font-weight: 500; }
+
+.pass-grid .card.picked.red { color: #9E2A2D; }
+.pass-grid .card.picked.black { color: #0F1416; }
+
+/* 选中的牌右上角打勾标记 */
+.pass-grid .card.picked::before {
+  content: "";
+  position: absolute;
+  top: 4px; right: 4px;
+  width: 14px; height: 14px;
+  border-radius: 50%;
+  background: var(--accent);
+  z-index: 2;
+}
+
+.pass-grid .card.picked::after {
+  content: "";
+  position: absolute;
+  top: 7.5px; right: 8.5px;
+  width: 6px; height: 3px;
+  border-left: 1.5px solid #fff;
+  border-bottom: 1.5px solid #fff;
+  transform: rotate(-45deg);
+  z-index: 3;
+}
+
+/* ============================================================
+ * 亮牌（卖牌）—— 仅拱猪
+ * 复用 .pass-grid 的卡片交互（选中=描边+底色+勾选），
+ * 但用暖色系区分：亮牌是赌注，视觉上要比传牌更"烫"。
+ * ============================================================ */
+.sell-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  justify-content: center;
+  padding: 4px 0;
+  min-height: var(--card-h);
+}
+
+/* 无牌可亮时的空态 */
+.sell-grid .empty-note { width: 100%; }
+
+.sell-grid .card {
+  cursor: pointer;
+  transition: transform .14s ease, box-shadow .14s ease,
+              border-color .14s, background .14s;
+}
+
+.sell-grid .card:hover {
+  transform: translateY(-5px);
+  border-color: var(--sell);
+}
+
+.sell-grid .card.picked {
+  transform: scale(1.03);
+  border-color: var(--sell);
+  border-width: 2px;
+  background: var(--sell-soft);
+  box-shadow: 0 0 0 3px rgba(176, 116, 23, .16),
+              0 3px 8px rgba(31, 36, 33, .12);
+  z-index: 2;
+}
+
+.sell-grid .card.picked .card-rank { font-weight: 500; }
+.sell-grid .card.picked.red { color: #9E2A2D; }
+.sell-grid .card.picked.black { color: #0F1416; }
+
+/* 已亮：左上角火焰状角标（用 ⚡ 表达"翻倍"） */
+.sell-grid .card.picked::before {
+  content: "";
+  position: absolute;
+  top: 4px; right: 4px;
+  width: 14px; height: 14px;
+  border-radius: 50%;
+  background: var(--sell);
+  z-index: 2;
+}
+
+.sell-grid .card.picked::after {
+  content: "";
+  position: absolute;
+  top: 7.5px; right: 8.5px;
+  width: 6px; height: 3px;
+  border-left: 1.5px solid #fff;
+  border-bottom: 1.5px solid #fff;
+  transform: rotate(-45deg);
+  z-index: 3;
+}
+
+/* 手牌区里标记"本局已亮出"的牌（结算前一直可见） */
+.hand-cards .card.is-sold {
+  border-color: var(--sell);
+  box-shadow: 0 0 0 2px rgba(176, 116, 23, .22);
+}
+
+/* ⚠️ 角标必须画在**牌面内部**，不能伸出牌外。
+ *
+ *    踩过的坑：最初把角标用 bottom: calc(100% + 2px) 顶到牌面之上，
+ *    结果整条链路上 `.table { overflow: hidden }` 把它裁掉，
+ *    看起来就是"字体不全 / 只剩半个字"。
+ *
+ *    为什么不能靠给祖先加 padding 解决：`.hand-cards` 是 flex 居中布局，
+ *    卡片在容器里垂直居中，容器加的 padding 只扩大盒子、不改变卡片的
+ *    相对位置，角标依旧贴着牌顶 → 依旧被 .table 裁。
+ *
+ *    正确做法：把角标压在牌面左上角**内部**（top: 2px），
+ *    并给它一条 12px 高的色带作为底衬，盖住该区域的角标点数。
+ *    这样既不超出牌外（不会被裁），也不会和角标文字糊在一起。 */
+.hand-cards .card.is-sold { position: relative; }
+
+/* ⚠️ 为什么是「右上角小胶囊」而不是顶部通栏：
+ *
+ *    通栏色带（top:0 全宽 12px）+ border-radius 会在浅色牌面上形成一块
+ *    深色圆弧，把「10」和花色糊住 —— 比原来的裁切更糟（见 _r8_D 截图）。
+ *
+ *    改到右上角后，身体完全落在牌内（不碰 .card{overflow:hidden}），
+ *    且远离左上角点数（top 3px / left 4px 区域），互不打扰。
+ *
+ *    给内容整体让出 13px 下内边距，保证"亮"字与点数有呼吸感。 */
+.hand-cards .card.is-sold { padding-top: 13px; }
+
+.hand-cards .card.is-sold::before {
+  content: "亮";
+  position: absolute;
+  top: 2px;
+  right: 3px;
+  width: 15px;
+  height: 13px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 9px;
+  font-weight: 500;
+  line-height: 1;
+  border-radius: 3px;
+  background: var(--sell);
+  color: #fff;
+  z-index: 5;
+  pointer-events: none;
+  box-shadow: 0 1px 2px rgba(176, 116, 23, .35);
+}
+
+.pass-tip {
+  font-size: 12.5px;
+  color: var(--warn);
+  background: var(--warn-soft);
+  border-radius: var(--r-sm);
+  padding: 7px 11px;
+  margin: 12px 0 0;
+  text-align: center;
+}
+
+.pass-tip.ok {
+  color: var(--accent);
+  background: var(--accent-soft);
+}
+
+/* 结算 */
+.result-hero {
+  text-align: center;
+  padding: 6px 0 16px;
+}
+
+/* 拱猪收牌明细：牌多时需要更宽的弹窗 */
+.modal-wide { max-width: 620px; }
+
+.settle-table td {
+  vertical-align: top;
+  line-height: 1.55;
+}
+
+.settle-cards {
+  font-size: 12px;
+  color: var(--text-2);
+}
+
+.settle-item {
+  display: inline-block;
+  margin: 0 6px 3px 0;
+  padding: 1px 0;
+  white-space: nowrap;
+}
+
+.settle-item em {
+  font-style: normal;
+  font-weight: 500;
+  color: var(--danger);
+}
+
+.settle-item.pos em { color: var(--accent); }
+
+.settle-none { color: var(--text-3); }
+
+.sell-mark {
+  font-size: 10px;
+  font-weight: 500;
+  color: var(--sell);
+  background: var(--sell-soft);
+  border-radius: 5px;
+  padding: 1px 4px;
+  margin-left: 2px;
+}
+
+.settle-notes { margin-top: 3px; }
+
+.moon-mark,
+.tf-mark {
+  display: inline-block;
+  font-size: 11px;
+  font-weight: 500;
+  border-radius: 5px;
+  padding: 1px 6px;
+  margin-right: 5px;
+}
+
+.moon-mark { color: var(--accent); background: var(--accent-soft); }
+.tf-mark { color: var(--sell); background: var(--sell-soft); }
+
+.settle-foot {
+  font-size: 12px;
+  color: var(--text-3);
+  text-align: center;
+  margin: 10px 0 0;
+}
+
+.result-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 12.5px;
+  padding: 4px 12px;
+  border-radius: 20px;
+  background: var(--accent-soft);
+  color: var(--accent);
+  margin-bottom: 12px;
+}
+
+.result-title { font-size: 20px; font-weight: 500; margin: 0 0 4px; }
+.result-sub { font-size: 13px; color: var(--text-2); margin: 0; }
+
+/* 开关 */
+.switch-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--line-1);
+}
+
+.switch-row:last-of-type { border-bottom: 0; }
+
+/* 当前模式下不适用的开关：置灰但仍可看清文字，避免玩家以为是渲染坏了 */
+.switch-row.is-disabled { opacity: .5; }
+.switch-row.is-disabled .switch { cursor: not-allowed; }
+
+.switch-note {
+  font-size: 11.5px;
+  color: var(--warn);
+  background: var(--warn-soft);
+  border-radius: var(--r-sm);
+  padding: 6px 9px;
+  margin: 2px 0 8px;
+  line-height: 1.45;
+}
+
+.switch-text { font-size: 13px; }
+.switch-text .d { font-size: 11.5px; color: var(--text-3); }
+
+.switch {
+  width: 38px; height: 22px;
+  border-radius: 11px;
+  background: var(--line-2);
+  border: 0;
+  padding: 2px;
+  position: relative;
+  flex-shrink: 0;
+  transition: background .15s;
+}
+
+.switch::after {
+  content: "";
+  position: absolute;
+  width: 18px; height: 18px;
+  border-radius: 50%;
+  background: #fff;
+  top: 2px; left: 2px;
+  transition: transform .15s;
+}
+
+.switch.on { background: var(--accent); }
+.switch.on::after { transform: translateX(16px); }
+
+/* 设置弹窗里的分组（拱猪选项等） */
+.opt-sep {
+  height: 1px;
+  background: var(--line-2);
+  margin: 18px 0 4px;
+}
+
+.opt-title {
+  font-size: 12.5px;
+  font-weight: 500;
+  color: var(--text-2);
+  margin: 8px 0 2px;
+  letter-spacing: .02em;
+}
+
+.field-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+  padding: 10px 0;
+}
+
+.field-label {
+  font-size: 13px;
+  flex-shrink: 0;
+  padding-top: 5px;
+}
+
+.field-ctl {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  align-items: flex-end;
+}
+
+.num-input {
+  width: 100px;
+  font-family: inherit;
+  font-size: 13px;
+  color: var(--text-1);
+  background: var(--bg-surface);
+  border: 1px solid var(--line-2);
+  border-radius: var(--r-md);
+  padding: 5px 10px;
+  text-align: right;
+}
+
+.num-input:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px rgba(58, 107, 76, .12);
+}
+
+.field-hint {
+  font-size: 11.5px;
+  color: var(--text-3);
+  text-align: right;
+  line-height: 1.5;
+}
+
+.chip-row {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.chip {
+  border: 1px solid var(--line-2);
+  background: var(--bg-surface);
+  color: var(--text-2);
+  font-size: 12px;
+  padding: 4px 11px;
+  border-radius: 20px;
+  transition: background .12s, border-color .12s, color .12s;
+}
+
+.chip:hover { background: var(--bg-sunken); }
+
+.chip.on {
+  background: var(--accent-soft);
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+/* 空态 */
+.empty-note {
+  font-size: 12.5px;
+  color: var(--text-3);
+  text-align: center;
+  padding: 14px 0;
+}
+
+/* ============================================================
+ * 动画
+ * ============================================================ */
+@keyframes slideIn {
+  from { opacity: 0; transform: translateY(-5px) scale(.96); }
+  to   { opacity: 1; transform: none; }
+}
+
+.card-enter { animation: slideIn .18s ease-out; }
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50%      { opacity: .45; }
+}
+
+.thinking { animation: pulse 1.1s ease-in-out infinite; }
+
+@media (prefers-reduced-motion: reduce) {
+  * { animation-duration: .01ms !important; transition-duration: .01ms !important; }
+}
+
+/* ============================================================
+ * 响应式
+ * ============================================================ */
+@media (max-width: 1180px) {
+  .layout { grid-template-columns: minmax(0, 1fr); }
+  .sidebar { flex-direction: row; flex-wrap: wrap; }
+  .sidebar > .panel { flex: 1 1 240px; }
+}
+
+@media (max-width: 900px) {
+  .table {
+    grid-template-columns: 128px minmax(0, 1fr) 128px;
+    padding: 12px;
+    min-height: 580px;
+  }
+  .seat-side { width: 128px; }
+  .seat { min-width: 0; padding: 7px 10px; }
+  .trick-area { grid-template-columns: 74px 74px 74px; }
+  .slot { width: 70px; height: 92px; }
+  .slot .card { width: 66px; height: 86px; }
+}
+
+@media (max-width: 720px) {
+  :root { --card-w: 48px; --card-h: 68px; }
+  .layout { padding: 12px; gap: 12px; }
+  .topbar { padding: 10px 12px; flex-wrap: wrap; }
+  .brand h1 { font-size: 14px; }
+  .brand .sub { display: none; }
+  /* 窄屏改为上下堆叠：北在上、中央、你在下；东西两侧收成一行 */
+  .table {
+    grid-template-columns: 1fr auto 1fr;
+    grid-template-rows: auto minmax(300px, 1fr) auto;
+    grid-template-areas:
+      "north north north"
+      "west  center east"
+      "south south south";
+    min-height: 560px;
+    gap: 8px;
+  }
+  .seat-north { justify-self: start; }
+  .seat-side { width: auto; }
+  .mini-vertical { max-width: 92px; }
+  .trick-area { grid-template-columns: 62px 62px 62px; gap: 6px 4px; }
+  .slot { width: 58px; height: 78px; }
+  .slot .card { width: 54px; height: 72px; }
+  .slot .card .card-rank { font-size: 14px; line-height: 14px; height: 14px; }
+  .slot .card .card-suit-sm { width: 10px; height: 10px; }
+  /* 注意：这里不要给 .card-suit-big 写固定 px，会覆盖百分比尺寸导致比例失真 */
+}

@@ -1,0 +1,826 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<meta name="theme-color" content="#F4F6F8">
+<title>红心大战 · 拱猪</title>
+<link rel="stylesheet" href="styles.css">
+</head>
+<body data-screen="home" data-panel="">
+
+<!-- ============================================================
+     主屏一 · 主页（大厅）
+     交互流程的第一站：模式 / 难度 / 规则变体全部在这里选好，
+     点「开始新的一局」才进入牌局。牌桌上不再出现任何说明文字。
+     ============================================================ -->
+<div class="screen" id="screenHome">
+
+  <header class="topbar">
+    <div class="brand">
+      <span class="brand-mark" aria-hidden="true">
+        <svg viewBox="0 0 32 32" fill="none"><path d="M16 24.5l-1.6-1.5C9.4 18 6 15.1 6 11.4 6 8.3 8.4 6 11.5 6c1.7 0 3.4.8 4.5 2.2C17.1 6.8 18.8 6 20.5 6 23.6 6 26 8.3 26 11.4c0 3.7-3.4 6.6-8.4 11.6L16 24.5z" fill="currentColor"/></svg>
+      </span>
+      <span class="brand-text">
+        <b>红心大战 · 拱猪</b>
+        <i>四人牌局 · 双规则模式</i>
+      </span>
+    </div>
+    <div class="topbar-right">
+      <button class="icon-btn" id="btnHelpHome" aria-label="帮助与规则" title="帮助与规则">
+        <svg viewBox="0 0 38 38" fill="none"><circle cx="19" cy="19" r="11" stroke="currentColor" stroke-width="1.8"/><path d="M16.4 15.6a2.7 2.7 0 015.2.9c0 1.8-2.6 2.2-2.6 4" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><circle cx="19" cy="24.4" r="1.1" fill="currentColor"/></svg>
+      </button>
+      <button class="icon-btn" id="btnSettingsHome" aria-label="设置" title="设置">
+        <svg viewBox="0 0 38 38" fill="none"><circle cx="19" cy="19" r="3.2" stroke="currentColor" stroke-width="1.8"/><path d="M19 10.5v-1.8M19 29.3v-1.8M27.5 19h1.8M9.7 19H11.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><circle cx="19" cy="19" r="7.6" stroke="currentColor" stroke-width="1.8" stroke-dasharray="2.6 4.2"/></svg>
+      </button>
+    </div>
+  </header>
+
+  <main class="home">
+    <!-- ---------- 左列：对局配置 ---------- -->
+    <section class="home-main">
+      <div class="home-hero">
+        <span class="eyebrow">开始牌局</span>
+        <h1>选择玩法，马上开局</h1>
+        <p>先选玩法和难度，其他设置也可随时调整。</p>
+      </div>
+
+      <div class="field">
+        <div class="field-head"><span class="field-label">玩法</span></div>
+        <div class="mode-cards" id="homeModes">
+          <button class="mode-card is-on" data-mode="hearts" aria-pressed="true">
+            <span class="mode-top">
+              <span class="mode-mark mark-hearts" aria-hidden="true">
+                <svg viewBox="0 0 40 40" fill="none"><path d="M20 30l-2-1.9C11.8 22.5 7.5 18.9 7.5 14.3 7.5 10.4 10.6 7.5 14.4 7.5c2.1 0 4.2 1 5.6 2.7 1.4-1.7 3.5-2.7 5.6-2.7 3.8 0 6.9 2.9 6.9 6.8 0 4.6-4.3 8.2-10.5 14L20 30z" fill="currentColor"/></svg>
+              </span>
+              <span class="radio" aria-hidden="true"></span>
+            </span>
+            <b class="mode-name">红心大战</b>
+            <span class="mode-desc">尽量少收罚分，累计分最低者获胜</span>
+            <span class="mode-tags"><i>100 分终局</i><i>全场 26 分</i><i>传牌轮换</i></span>
+          </button>
+          <button class="mode-card" data-mode="gongzhu" aria-pressed="false">
+            <span class="mode-top">
+              <span class="mode-mark mark-gongzhu" aria-hidden="true">
+                <svg viewBox="0 0 40 40" fill="none"><path d="M12.4 13.6L9.2 7.4l6.6 2.5-3.4 3.7z" fill="currentColor"/><path d="M27.6 13.6l3.2-6.2-6.6 2.5 3.4 3.7z" fill="currentColor"/><ellipse cx="20" cy="22.4" rx="11.6" ry="10.2" fill="currentColor"/><ellipse cx="20" cy="25" rx="5.4" ry="4.1" fill="#EDEFFC"/><circle cx="18" cy="25" r="1.1" fill="currentColor"/><circle cx="22" cy="25" r="1.1" fill="currentColor"/><circle cx="14.2" cy="18.4" r="1.25" fill="#EDEFFC"/><circle cx="25.8" cy="18.4" r="1.25" fill="#EDEFFC"/></svg>
+              </span>
+              <span class="radio" aria-hidden="true"></span>
+            </span>
+            <b class="mode-name">拱猪</b>
+            <span class="mode-desc">猪羊变压器与亮牌赌注，累计分最高者获胜</span>
+            <span class="mode-tags"><i id="tagGzThreshold">−1000 分终局</i><i>猪羊 ±100</i><i>支持亮牌</i></span>
+          </button>
+          <button class="mode-card" data-mode="ddz" aria-pressed="false">
+            <span class="mode-top">
+              <span class="mode-mark mark-ddz" aria-hidden="true"><span>王</span></span>
+              <span class="radio" aria-hidden="true"></span>
+            </span>
+            <b class="mode-name">斗地主</b>
+            <span class="mode-desc">三人联机、叫分抢地主、底牌加倍</span>
+            <span class="mode-tags"><i>三人联机</i><i>叫分 1～3</i><i>底牌</i></span>
+          </button>
+        </div>
+      </div>
+
+      <div class="field">
+        <div class="field-head">
+          <span class="field-label">AI 难度</span>
+          <span class="field-hint">牌局中仍可切换</span>
+        </div>
+        <div class="seg" id="diffSeg">
+          <button data-diff="easy">入门</button>
+          <button data-diff="normal" class="on">熟练</button>
+          <button data-diff="hard">高手</button>
+        </div>
+      </div>
+
+      <div class="field">
+        <div class="field-head">
+          <span class="field-label">对局选项</span>
+          <button class="link" id="btnMoreSettings">更多设置 ›</button>
+        </div>
+        <div class="surface opt-card">
+          <div class="switch-row" id="rowMoonOpt">
+            <span class="switch-text">满贯：独收者自己 −26<i>关闭后改为其余三家各 +26</i></span>
+            <button class="switch on" id="swMoon" role="switch" aria-checked="true" aria-label="满贯处理"></button>
+          </div>
+          <div class="switch-row" id="rowPassOpt">
+            <span class="switch-text">启用传牌环节<i>关闭后每局直接发牌开打</i></span>
+            <button class="switch on" id="swPass" role="switch" aria-checked="true" aria-label="启用传牌环节"></button>
+          </div>
+          <p class="switch-note" id="passNote" hidden>拱猪没有传牌规则，发牌后直接开打。</p>
+          <div class="switch-row">
+            <span class="switch-text">AI 出牌间隔<i>保留观战间隔，方便看清每张牌</i></span>
+            <button class="switch on" id="swDelay" role="switch" aria-checked="true" aria-label="延迟出牌动画"></button>
+          </div>
+        </div>
+      </div>
+
+      <div class="cta-row">
+        <button class="btn btn-primary btn-lg" id="btnNew">开始新的一局</button>
+        <button class="btn btn-ghost btn-lg" id="btnContinue" hidden>继续当前对局</button>
+      </div>
+
+      <!-- ---------- 联机对局 ---------- -->
+      <div class="surface online-card" id="onlineCard">
+        <div class="surface-head">
+          <b>联机对战</b>
+          <span class="online-status" id="onlineStatus">检查中…</span>
+        </div>
+        <p class="online-desc">建房后把 6 位房间码发给朋友，大家在各自设备上同桌出牌。人数不足由 AI 补位。</p>
+        <div class="online-actions">
+          <button class="btn btn-primary" id="btnCreateRoom">创建房间</button>
+          <button class="btn btn-ghost" id="btnJoinRoom">加入房间</button>
+          <button class="btn btn-ghost" id="btnNetSetup">联机设置</button>
+        </div>
+        <div class="online-join" id="onlineJoin" hidden>
+          <input class="room-input" id="roomCodeInput" maxlength="6" placeholder="输入 6 位房间码"
+                 autocomplete="off" spellcheck="false" aria-label="房间码">
+          <button class="btn btn-primary" id="btnJoinGo">进入</button>
+          <button class="btn btn-ghost" id="btnJoinCancel">取消</button>
+        </div>
+
+        <!-- 联机服务配置（凭据只存在本机浏览器，不会上传） -->
+        <div class="net-setup" id="netSetup" hidden>
+          <p class="net-setup-note">
+            填入 Upstash 的 <b>REST URL</b> 与 <b>REST Token</b>（
+            <a href="https://console.upstash.com" target="_blank" rel="noopener noreferrer">console.upstash.com</a>
+            → 你的数据库 → REST API 区块）。凭据保存在本机浏览器，不会上传到任何地方。
+          </p>
+          <input class="room-input net-input" id="netUrl" placeholder="https://xxx-12345.upstash.io"
+                 autocomplete="off" spellcheck="false" aria-label="Upstash REST URL">
+          <input class="room-input net-input" id="netToken" placeholder="REST Token（gQAAAAAA...）"
+                 autocomplete="off" spellcheck="false" aria-label="Upstash REST Token">
+          <div class="net-setup-actions">
+            <button class="btn btn-primary" id="btnNetSave">保存并测试</button>
+            <button class="btn btn-ghost" id="btnNetClear">清除</button>
+          </div>
+        </div>
+
+        <p class="online-error" id="onlineError" hidden></p>
+      </div>
+    </section>
+
+    <!-- ---------- 右列：玩家 / 战绩 / 判胜提要 ---------- -->
+    <aside class="home-side">
+      <div class="surface player-card">
+        <span class="avatar" aria-hidden="true">
+          <svg viewBox="0 0 34 34" fill="none"><circle cx="17" cy="13" r="4.8" stroke="currentColor" stroke-width="1.8"/><path d="M8.5 26c0-4.2 3.9-7 8.5-7s8.5 2.8 8.5 7" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
+        </span>
+        <span class="player-text">
+          <input class="player-name" id="playerName" maxlength="10" value="玩家昵称" aria-label="昵称">
+          <i>点击可修改昵称</i>
+        </span>
+      </div>
+
+      <div class="surface">
+        <div class="surface-head"><b>最近战绩</b><button class="link" id="btnHistoryAll">全部 ›</button></div>
+        <div class="history" id="historyList"></div>
+      </div>
+
+      <div class="surface tip-card">
+        <b class="tip-title" id="modeTipTitle">本模式判胜</b>
+        <p id="modeTipBody">任一玩家累计达到 100 分即终局，总分最低者获胜。</p>
+      </div>
+    </aside>
+  </main>
+
+  <!-- 移动端底部胶囊导航：牌局 / 规则 / 设置 / 战绩。
+       规则·设置·战绩 会升起对应的全屏面板，「牌局」回到配置。 -->
+  <nav class="tabbar" id="homeTabbar">
+    <div class="tabbar-pill">
+      <button class="tab is-on" data-tab="play">
+        <svg viewBox="0 0 18 18" fill="none"><rect x="2" y="2.4" width="9.4" height="13.2" rx="2" stroke="currentColor" stroke-width="1.5"/><path d="M13.8 5.2v8.2a2 2 0 01-2 2H7.4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+        <i>牌局</i>
+      </button>
+      <button class="tab" data-tab="rules">
+        <svg viewBox="0 0 18 18" fill="none"><rect x="3" y="2.8" width="12" height="12.4" rx="2.4" stroke="currentColor" stroke-width="1.5"/><path d="M6.2 7h5.6M6.2 10.2h4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+        <i>规则</i>
+      </button>
+      <button class="tab" data-tab="settings">
+        <svg viewBox="0 0 18 18" fill="none"><circle cx="9" cy="9" r="2.6" stroke="currentColor" stroke-width="1.5"/><path d="M9 2.6v1.6M9 13.8v1.6M15.4 9h-1.6M4.2 9H2.6" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/><circle cx="9" cy="9" r="5.2" stroke="currentColor" stroke-width="1.5" stroke-dasharray="2 3"/></svg>
+        <i>设置</i>
+      </button>
+      <button class="tab" data-tab="history">
+        <svg viewBox="0 0 18 18" fill="none"><path d="M3.6 14.6V9.4M9 14.6V3.6M14.4 14.6v-3.4" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg>
+        <i>战绩</i>
+      </button>
+    </div>
+  </nav>
+</div>
+
+<!-- ============================================================
+     主屏二 · 游戏页
+     只有牌桌 + 一行状态提示。计分 / 本局信息 / 记录 / 规则
+     全部收进面板（桌面为右侧抽屉，移动端为全屏面板）。
+     ============================================================ -->
+<div class="screen" id="screenGame" hidden>
+
+  <header class="topbar">
+    <div class="topbar-left">
+      <button class="icon-btn" id="btnBackHome" aria-label="返回主页" title="返回主页">
+        <svg viewBox="0 0 38 38" fill="none"><path d="M22.5 12.5L17 19l5.5 6.5" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      </button>
+      <span class="mode-chip" id="gameModeChip"><i class="dot"></i><b>红心大战</b></span>
+      <span class="round-text" id="gameRoundText">未开局</span>
+    </div>
+    <div class="topbar-right">
+      <button class="btn btn-ghost" id="btnInfoPanel" aria-label="对局信息" title="对局信息">
+        <svg class="only-mobile" viewBox="0 0 32 32" fill="none"><path d="M11 12.4h10M11 16h10M11 19.6h6.4" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
+        <span class="only-desktop">对局信息</span>
+      </button>
+      <button class="icon-btn" id="btnSettingsGame" aria-label="设置" title="设置">
+        <svg viewBox="0 0 38 38" fill="none"><circle cx="19" cy="19" r="3.2" stroke="currentColor" stroke-width="1.8"/><path d="M19 10.5v-1.8M19 29.3v-1.8M27.5 19h1.8M9.7 19H11.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><circle cx="19" cy="19" r="7.6" stroke="currentColor" stroke-width="1.8" stroke-dasharray="2.6 4.2"/></svg>
+      </button>
+      <button class="btn btn-soft" id="btnExitGame">退出对局</button>
+    </div>
+  </header>
+
+  <main class="table-wrap">
+    <div class="table" id="table">
+
+      <!-- 拱猪亮牌公示条：本局各家的公开赌注（与「已收的牌」严格分开） -->
+      <div class="sold-board" id="soldBoard" hidden>
+        <span class="sold-board-title">本局亮牌</span>
+        <div class="sold-board-list" id="soldBoardList"></div>
+      </div>
+
+      <!-- 斗地主的底牌（地主牌）不再常驻在牌桌上。
+           ⚠️ 它曾经占 .table 的 sold 那一行，在手机端把牌桌顶部塞得很乱；
+              改成「点击查看」后，牌桌上只留一个入口按钮（见 .hand-head），
+              3 张底牌搬进 #ovBottom 弹窗。 -->
+
+      <!-- 定完地主时的「亮底牌 → 飞向地主」临时展示层。
+           ⚠️ 刻意做成绝对定位的独立层、不参与牌桌网格：
+              联机侧每次轮询都会重绘牌桌，塞进 .trick-area 会被立刻清掉。 -->
+      <div class="ddz-deal-layer" id="ddzDealLayer" hidden></div>
+
+      <div class="seat-north">
+        <div class="seat seat-north-card" id="seat2">
+          <span class="seat-text">
+            <b class="seat-name" id="name2">AI 北</b>
+            <i class="seat-tag" id="tag2">等待</i>
+          </span>
+          <div class="won-row won-row-mid" id="won2" hidden></div>
+          <span class="seat-spacer"></span>
+          <span class="seat-meta" id="meta2">剩 13 张 · 已收 0 分</span>
+        </div>
+      </div>
+
+      <div class="seat-west">
+        <div class="seat seat-side" id="seat1">
+          <b class="seat-name" id="name1">AI 西</b>
+          <i class="seat-tag" id="tag1">等待</i>
+          <span class="seat-meta" id="meta1">剩 13 张 · 已收 0 分</span>
+          <div class="mini-hand mini-vertical" id="mini1" hidden></div>
+          <div class="won-row" id="won1" hidden></div>
+        </div>
+      </div>
+
+      <div class="seat-east">
+        <div class="seat seat-side" id="seat3">
+          <b class="seat-name" id="name3">AI 东</b>
+          <i class="seat-tag" id="tag3">等待</i>
+          <span class="seat-meta" id="meta3">剩 13 张 · 已收 0 分</span>
+          <div class="mini-hand mini-vertical" id="mini3" hidden></div>
+          <div class="won-row" id="won3" hidden></div>
+        </div>
+      </div>
+
+      <!-- 中央出牌区：底板 + 四家出牌位（方位与座位对齐）
+           ⚠️ 这里的 .slot-label 初值只是占位，必须由 renderSeats() 按 SEAT_LABEL 覆写 ——
+              写死在 HTML 里的话，联机时会一直显示「AI 西 / AI 北 / AI 东」，
+              与座位卡上的真实昵称对不上。 -->
+      <div class="center">
+        <div class="trick-area" id="trickArea">
+          <div class="slot-cell pos-nw">
+            <div class="slot" id="slot1"></div>
+            <span class="slot-label" id="slotLabel1">AI 西</span>
+          </div>
+          <div class="slot-cell pos-n">
+            <div class="slot" id="slot2"></div>
+            <span class="slot-label" id="slotLabel2">AI 北</span>
+          </div>
+          <div class="slot-cell pos-ne">
+            <div class="slot" id="slot3"></div>
+            <span class="slot-label" id="slotLabel3">AI 东</span>
+          </div>
+          <div class="slot-cell pos-s">
+            <div class="slot" id="slot0"></div>
+            <span class="slot-label" id="slotLabel0">你</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="ddz-actions" id="ddzActions" hidden>
+        <button class="btn btn-ghost" id="ddzPass" type="button">不出</button>
+        <button class="btn btn-primary" id="ddzPlay" type="button">出牌</button>
+        <span class="ddz-combo-hint" id="ddzComboHint">请选择要出的牌</span>
+      </div>
+
+      <div class="hand-area">
+        <div class="hand-head">
+          <span class="hand-title" id="handTitle">你的手牌</span>
+          <!-- 右侧：底牌入口 + 我的身份/叫分。
+               ⚠️ 叫分数据原本在下方「本局我收下的分」那一条里，与手牌无关、
+                 在手机端还多占一行 —— 移到手牌标题行最右侧。 -->
+          <span class="hand-head-right">
+            <button class="hand-chip" id="btnShowBottom" type="button" hidden>底牌</button>
+            <em class="hand-role" id="handRole"></em>
+          </span>
+        </div>
+        <div class="hand-cards" id="handCards"></div>
+      </div>
+
+      <div class="hintbar" id="hintbar"><span class="hint-dot"></span><span id="hintText">准备开始。</span></div>
+
+      <!-- 本局我的扣分：只统计「我自己」这一局已收下的牌值，
+           和座位卡/计分板里的实时分同源，但聚焦到本人，方便盯着自己的损失 -->
+      <div class="myscore" id="myRoundScore" hidden>
+        <span class="myscore-head">
+          <span class="myscore-title">本局我收下的分</span>
+          <b class="myscore-total" id="myRoundTotal">0</b>
+        </span>
+        <span class="myscore-detail" id="myRoundDetail"></span>
+      </div>
+    </div>
+  </main>
+
+  <!-- 收牌动画层：牌飞向赢家的轨迹与「收牌方」标识都画在这里。
+       纯视觉容器，pointer-events:none —— 动画期间绝不拦截任何触控，
+       否则手机上会出现「点了没反应」的假死感。 -->
+  <div class="collect-layer" id="collectLayer" aria-hidden="true"></div>
+</div>
+
+<!-- ============================================================
+     主屏三 · 联机大厅
+     创建/加入房间后先在这里等齐人，房主点「开始」才发牌。
+     ============================================================ -->
+<div class="screen" id="screenLobby" hidden>
+  <div class="topbar">
+    <div class="topbar-left">
+      <button class="icon-btn" id="btnLobbyBack" aria-label="返回主页">
+        <svg viewBox="0 0 32 32" fill="none"><path d="M19 9l-7 7 7 7" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      </button>
+      <span class="brand-text"><b>联机大厅</b></span>
+    </div>
+    <div class="topbar-right">
+      <button class="btn btn-ghost" id="btnCopyCode">复制房间码</button>
+    </div>
+  </div>
+
+  <main class="lobby">
+    <div class="surface lobby-code-card">
+      <span class="lobby-code-label">房间码</span>
+      <b class="lobby-code" id="lobbyCode">------</b>
+      <p class="lobby-code-hint">把这 6 位码发给朋友，他们输入后即可入座</p>
+      <!-- 扫码邀请：只有房主看得到，客人不给入口（避免拼出带凭据的链接） -->
+      <button class="btn btn-primary lobby-invite-btn" id="btnInvite" hidden>扫码邀请朋友</button>
+    </div>
+
+    <div class="surface" id="invitedNotice" hidden>
+      <div class="surface-head"><b>已通过邀请加入</b></div>
+      <p class="invited-note">
+        你正在使用房主提供的联机服务。房间码：<b id="invitedCode">------</b>。
+        本局结束后，本机留存的房间信息会自动清除，只保留这一局的战绩。
+      </p>
+    </div>
+
+    <div class="surface">
+      <div class="surface-head"><b>座位</b><span class="field-hint" id="lobbyModeHint">拱猪</span></div>
+      <div class="lobby-seats" id="lobbySeats"></div>
+    </div>
+
+    <div class="surface">
+      <div class="surface-head"><b>玩法设置</b><span class="field-hint">房主可改</span></div>
+      <div class="lobby-settings" id="lobbySettings"></div>
+    </div>
+
+    <div class="lobby-actions">
+      <button class="btn btn-ghost" id="btnLeaveRoom">离开房间</button>
+      <button class="btn btn-primary btn-lg" id="btnStartOnline">开始对局</button>
+    </div>
+    <p class="lobby-note" id="lobbyNote"></p>
+  </main>
+</div>
+
+<!-- ============================================================
+     面板层（桌面：右侧抽屉；移动：全屏面板）
+     ============================================================ -->
+<div class="scrim" id="scrim" hidden></div>
+
+<!-- 对局信息：计分板 / 本局信息 / 牌局记录 —— 局内过程数据的唯一去处 -->
+<aside class="panel" id="panelInfo" hidden aria-label="对局信息">
+  <div class="panel-head">
+    <b>对局信息</b>
+    <button class="icon-btn icon-btn-sm" data-close aria-label="关闭">
+      <svg viewBox="0 0 32 32" fill="none"><path d="M12 12l8 8M20 12l-8 8" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
+    </button>
+  </div>
+  <div class="panel-body">
+    <div class="group">
+      <span class="group-label">计分板</span>
+      <div class="surface">
+        <div class="surface-head"><b>累计得分</b><span class="field-hint" id="scorePanelSub">满 100 分终局</span></div>
+        <table class="score-table">
+          <thead><tr><th>玩家</th><th class="num">本局</th><th class="num">累计</th></tr></thead>
+          <tbody id="scoreBody"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="group">
+      <span class="group-label">本局信息</span>
+      <div class="surface info-list">
+        <div class="info-row" id="rowPass"><span class="k">传牌方向</span><span class="v" id="infoPass">—</span></div>
+        <div class="info-row"><span class="k">已打墩数</span><span class="v" id="infoTrick">0 / 13</span></div>
+        <div class="info-row" id="rowHearts"><span class="k" id="kHearts">红心已出</span><span class="v" id="infoHearts">0 张</span></div>
+        <div class="info-row" id="rowQueen"><span class="k" id="kQueen">黑桃 Q</span><span class="v" id="infoQueen">未出现</span></div>
+        <div class="info-row" id="rowExtra"><span class="k" id="kExtra">满贯处理</span><span class="v" id="infoMoon">自己 −26</span></div>
+        <div class="info-row" id="rowSell" hidden><span class="k">已亮牌</span><span class="v" id="infoSell">无</span></div>
+      </div>
+    </div>
+
+    <div class="group">
+      <span class="group-label">牌局记录</span>
+      <ul class="log-list" id="logList"><li>等待开局…</li></ul>
+    </div>
+  </div>
+</aside>
+
+<!-- 设置：对局总览 / 拱猪专属 / 帮助入口 —— 说明文字按类别归档 -->
+<aside class="panel" id="panelSettings" hidden aria-label="设置">
+  <div class="panel-head">
+    <b>设置</b>
+    <button class="icon-btn icon-btn-sm" data-close aria-label="关闭">
+      <svg viewBox="0 0 32 32" fill="none"><path d="M12 12l8 8M20 12l-8 8" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
+    </button>
+  </div>
+  <div class="panel-body">
+    <div class="group">
+      <span class="group-label">对局</span>
+      <div class="surface group-card">
+        <div class="link-row"><span>玩法模式</span><em id="setModeValue">红心大战</em></div>
+        <div class="link-row"><span>AI 难度</span><em id="setDiffValue">熟练</em></div>
+        <div class="link-row" id="settingsMoonRow"><span>满贯处理</span><em id="setMoonValue">自己 −26</em></div>
+        <div class="link-row" id="settingsPassRow"><span>传牌环节</span><em id="setPassValue">开启</em></div>
+      </div>
+      <p class="group-note">这四项在主页的配置区调整，改动会在下一局生效。</p>
+    </div>
+
+    <div class="group" id="gzOptions">
+      <span class="group-label">拱猪专属</span>
+      <div class="surface group-card">
+        <div class="switch-row">
+          <span class="switch-text">启用亮牌（卖牌）<i>开局前可亮出 猪 / 羊 / 变压器 / 红桃A，亮出的牌分数翻倍</i></span>
+          <button class="switch on" id="swSell" role="switch" aria-checked="true" aria-label="启用亮牌"></button>
+        </div>
+        <div class="field-row">
+          <label class="field-label" for="inpThreshold">终局分数</label>
+          <div class="field-ctl">
+            <input type="number" id="inpThreshold" class="num-input" value="-1000" step="100">
+            <div class="chip-row" id="thresholdChips">
+              <button class="chip" data-v="-500">−500</button>
+              <button class="chip on" data-v="-1000">−1000</button>
+              <button class="chip" data-v="-2000">−2000</button>
+            </div>
+            <p class="field-hint">任一家累计分 ≤ 此值时终局，累计分<b>最高</b>者获胜。</p>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="group">
+      <span class="group-label">帮助</span>
+      <div class="surface group-card">
+        <button class="link-row" data-open-rules="rule"><span>玩法规则与流程</span><em>›</em></button>
+        <button class="link-row" data-open-rules="score"><span>分值速查表</span><em>›</em></button>
+      </div>
+    </div>
+  </div>
+</aside>
+
+<!-- 帮助与规则：全部说明文字的唯一归宿 -->
+<aside class="panel" id="panelRules" hidden aria-label="帮助与规则">
+  <div class="panel-head">
+    <b>帮助与规则</b>
+    <button class="icon-btn icon-btn-sm" data-close aria-label="关闭">
+      <svg viewBox="0 0 32 32" fill="none"><path d="M12 12l8 8M20 12l-8 8" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
+    </button>
+  </div>
+  <div class="panel-tabs" id="rulesTabs">
+    <button class="pt is-on" data-ptab="rule">规则</button>
+    <button class="pt" data-ptab="score">分值</button>
+    <button class="pt" data-ptab="ops">操作</button>
+  </div>
+  <div class="panel-body">
+    <div class="pt-pane" data-pane="rule">
+      <div class="group">
+        <span class="group-label" id="rulesTitle">红心大战规则</span>
+        <p class="group-note" id="rulesLead">四人各 13 张牌，目标是尽量少收罚分。</p>
+      </div>
+      <div class="rules" id="rulesHearts">
+        <section class="rule-sec"><b>罚分牌</b><p>每张红心 1 分，黑桃 Q（猪）13 分，一副牌共 26 分。</p></section>
+        <section class="rule-sec"><b>基本流程</b><p>每局开始传牌，然后 13 墩。每墩由上一墩赢家首引，其余三家依次出牌。</p></section>
+        <section class="rule-sec"><b>必须跟花色</b><p>手里有首引花色就一定要跟出，不能垫其他花色。</p></section>
+        <section class="rule-sec"><b>四条规定</b><p>① 首轮不能出红心 ② 首轮不能出黑桃 Q ③ 首引不能出红心 ④ 有牌必须跟花色。若手里只剩下被禁止的牌，则解禁。</p></section>
+        <section class="rule-sec"><b>首墩首引</b><p>第一墩固定由持梅花 2 者首引，且他只能出梅花 2。</p></section>
+        <section class="rule-sec"><b>收分</b><p>比大小只看首引花色，最大者收下这一墩的所有罚分。</p></section>
+        <section class="rule-sec"><b>满贯（收月亮）</b><p>一人独收全部 26 分即为满贯。按当前设置，可让自己 −26 分，或让其余三家各 +26 分。</p></section>
+        <section class="rule-sec"><b>终局</b><p>任一玩家累计达到 100 分即结束，总分最低者获胜。</p></section>
+        <section class="rule-sec"><b>传牌轮换</b><p>向左 → 向右 → 传给对家 → 不传，如此循环。</p></section>
+      </div>
+      <div class="rules" id="rulesGongzhu" hidden>
+        <section class="rule-sec"><b>分值牌</b><p>黑桃 Q（猪）<b>−100</b>；方块 J（羊）<b>+100</b>；梅花 10 是<b>变压器</b>，自身不计分。</p></section>
+        <section class="rule-sec"><b>红桃扣分</b><p>红桃按牌面扣分：A −50、K −40、Q −30、J −20；5~10 各 −10，2~4 无分。</p></section>
+        <section class="rule-sec"><b>变压器</b><p>收下梅花 10 的人本局<b>总分翻倍</b>；若他本局刚好 0 分，则改为 <b>+50</b>。</p></section>
+        <section class="rule-sec"><b>满红</b><p>一人收齐全部 13 张红桃，红桃部分整体变为 <b>+200</b>（猪、羊照常另计）。</p></section>
+        <section class="rule-sec"><b>亮牌（卖牌）</b><p>开局前可亮出 猪 / 羊 / 变压器 / 红桃A。亮过的牌在结算时<b>该张分数翻倍</b>——自己吃到亏双倍，被对家吃到对方也双倍。</p></section>
+        <section class="rule-sec"><b>必须跟花色</b><p>手里有首引花色就必须跟出，不能垫其他花色。</p></section>
+        <section class="rule-sec"><b>首墩首引</b><p>第一墩固定由持梅花 2 者首引，且他只能出梅花 2。</p></section>
+        <section class="rule-sec"><b>与红心大战的区别</b><p>拱猪<b>没有</b>「首墩禁红心 / 禁猪」，也<b>没有</b>「首引禁红心」——红桃和猪随时都能出。</p></section>
+        <section class="rule-sec"><b>终局</b><p>任一家累计分 ≤ 设定阈值（默认 −1000）即结束，累计分<b>最高</b>者获胜。</p></section>
+      </div>
+      <div class="rules" id="rulesDdz" hidden>
+        <section class="rule-sec"><b>三人联机</b><p>三名玩家各 17 张牌，剩余 3 张为底牌；人数不足时由 AI 补位。</p></section>
+        <section class="rule-sec"><b>叫分抢地主</b><p>依次选择不叫或叫 1 / 2 / 3 分，最高叫分者拿到底牌并成为地主。</p></section>
+        <section class="rule-sec"><b>出牌规则</b><p>支持单牌、对子、三张、三带一、三带二、顺子、连对、飞机、炸弹和王炸；不能压过时可以不出。</p></section>
+        <section class="rule-sec"><b>胜负</b><p>地主先出完牌则地主方获胜，否则农民方获胜；炸弹和王炸会提高倍数。</p></section>
+      </div>
+    </div>
+
+    <div class="pt-pane" data-pane="score" hidden>
+      <div class="rules" id="scoreHearts">
+        <section class="rule-sec"><b>红心大战 · 罚分</b></section>
+        <div class="score-list">
+          <div class="score-item"><span>每张红心</span><em class="hearts">1 分</em></div>
+          <div class="score-item"><span>黑桃 Q（猪）</span><em class="hearts">13 分</em></div>
+          <div class="score-item"><span>一副牌合计</span><em class="hearts">26 分</em></div>
+          <div class="score-item"><span>满贯（独收 26 分）</span><em>−26 分 / 或其余三家各 +26</em></div>
+          <div class="score-item"><span>终局线</span><em>累计 100 分</em></div>
+        </div>
+      </div>
+      <div class="rules" id="scoreGongzhu" hidden>
+        <section class="rule-sec"><b>拱猪 · 分值</b></section>
+        <div class="score-list">
+          <div class="score-item"><span>黑桃 Q（猪）</span><em class="hearts">−100</em></div>
+          <div class="score-item"><span>方块 J（羊）</span><em class="pos">+100</em></div>
+          <div class="score-item"><span>梅花 10（变压器）</span><em>持有者总分 ×2 · 0 分改 +50</em></div>
+          <div class="score-item"><span>红桃 A / K / Q / J</span><em class="hearts">−50 / −40 / −30 / −20</em></div>
+          <div class="score-item"><span>红桃 5~10</span><em class="hearts">各 −10</em></div>
+          <div class="score-item"><span>红桃 2~4</span><em>无分</em></div>
+          <div class="score-item"><span>满红（收齐 13 张红桃）</span><em class="pos">红桃部分转为 +200</em></div>
+          <div class="score-item"><span>亮牌</span><em>该张分数 ×2</em></div>
+          <div class="score-item"><span>终局线</span><em>累计 ≤ 阈值（默认 −1000）</em></div>
+        </div>
+      </div>
+      <div class="rules" id="scoreDdz" hidden>
+        <section class="rule-sec"><b>斗地主 · 计分</b></section>
+        <div class="score-list">
+          <div class="score-item"><span>基础分</span><em>最高叫分 1 / 2 / 3</em></div>
+          <div class="score-item"><span>炸弹</span><em>每个炸弹 ×2</em></div>
+          <div class="score-item"><span>王炸</span><em>额外 ×2</em></div>
+          <div class="score-item"><span>地主赢</span><em>地主 +2 倍，农民各 −1 倍</em></div>
+          <div class="score-item"><span>农民赢</span><em>地主 −2 倍，农民各 +1 倍</em></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="pt-pane" data-pane="ops" hidden>
+      <div class="rules">
+        <section class="rule-sec"><b>鼠标 / 触屏</b><p>点击手牌即可出牌；不可出的牌会变淡并带折角标记。</p></section>
+        <section class="rule-sec"><b>传牌与亮牌</b><p id="opsFlow">红心大战：传牌阶段选 3 张确认传出。</p></section>
+        <section class="rule-sec"><b>对局信息</b><p>牌桌上的「对局信息」里可以看到计分板、本局信息与牌局记录。</p></section>
+        <section class="rule-sec"><b>快捷键</b>
+          <div class="kbd-list">
+            <div><kbd>Esc</kbd><span>关闭当前面板 / 弹窗</span></div>
+            <div><kbd>H</kbd><span>打开帮助与规则</span></div>
+            <div><kbd>I</kbd><span>打开对局信息</span></div>
+          </div>
+        </section>
+      </div>
+    </div>
+  </div>
+</aside>
+
+<!-- 战绩 -->
+<aside class="panel" id="panelHistory" hidden aria-label="战绩">
+  <div class="panel-head">
+    <b>战绩</b>
+    <button class="icon-btn icon-btn-sm" data-close aria-label="关闭">
+      <svg viewBox="0 0 32 32" fill="none"><path d="M12 12l8 8M20 12l-8 8" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
+    </button>
+  </div>
+  <div class="panel-body">
+    <div class="surface player-card">
+      <span class="avatar" aria-hidden="true">
+        <svg viewBox="0 0 34 34" fill="none"><circle cx="17" cy="13" r="4.8" stroke="currentColor" stroke-width="1.8"/><path d="M8.5 26c0-4.2 3.9-7 8.5-7s8.5 2.8 8.5 7" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
+      </span>
+      <span class="player-text">
+        <b id="playerNameEcho">玩家昵称</b>
+        <i>本机记录，仅保存在浏览器里</i>
+      </span>
+    </div>
+    <div class="group">
+      <span class="group-label">全部战绩</span>
+      <div class="history" id="historyListFull"></div>
+    </div>
+    <button class="btn btn-ghost" id="btnClearHistory">清空战绩记录</button>
+  </div>
+</aside>
+
+<!-- ============================================================
+     局内弹窗（传牌 / 亮牌 / 拱猪明细 / 本局结算）
+     ============================================================ -->
+
+<!-- 斗地主叫分 -->
+<div class="overlay" id="ovBid" hidden>
+  <div class="modal ddz-bid-modal">
+    <div class="modal-head">
+      <h2>叫分抢地主</h2>
+      <p class="lead" id="bidLead">轮到你叫分。可以不叫，或叫 1 / 2 / 3 分。</p>
+    </div>
+
+    <!-- ⚠️ 叫分必须先看手牌再决定叫几分。
+         手机端弹窗是底部抽屉，会把手牌区整个盖住 —— 手牌必须搬进弹窗里，
+         不能指望玩家隔着遮罩去猜。桌面端也一并在弹窗内展示，省得上下找。 -->
+    <div class="ddz-bid-hand-wrap">
+      <span class="ddz-bid-hand-label" id="bidHandLabel">你的手牌</span>
+      <div class="ddz-bid-hand" id="bidHand"></div>
+    </div>
+
+    <!-- 各家叫分：谁不叫、谁叫了几分，一眼看全 -->
+    <div class="ddz-bid-list" id="bidList"></div>
+
+    <div class="modal-bar"><span class="modal-bar-label" id="bidTurnText">等待叫分</span><span class="hand-hint" id="bidCurrentText">当前最高：不叫</span></div>
+    <div class="ddz-bid-buttons" id="ddzBidButtons">
+      <button class="btn btn-ghost" data-bid="0" type="button">不叫</button>
+      <button class="btn btn-ghost" data-bid="1" type="button">1 分</button>
+      <button class="btn btn-ghost" data-bid="2" type="button">2 分</button>
+      <button class="btn btn-primary" data-bid="3" type="button">3 分</button>
+    </div>
+  </div>
+</div>
+
+<!-- 斗地主底牌（点击查看） -->
+<div class="overlay" id="ovBottom" hidden>
+  <div class="modal ddz-bottom-modal">
+    <div class="modal-head">
+      <h2>底牌</h2>
+      <p class="lead" id="bottomLead">地主拿走的 3 张底牌。</p>
+    </div>
+    <div class="ddz-bottom" id="ddzBottom">
+      <div id="ddzBottomCards" class="ddz-bottom-cards"></div>
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-primary" type="button" data-close-bottom>知道了</button>
+    </div>
+  </div>
+</div>
+
+<!-- 传牌 -->
+<div class="overlay" id="ovPass" hidden>
+  <div class="modal">
+    <div class="modal-head">
+      <h2>选择要传出的牌</h2>
+      <p class="lead" id="passLead">本局向左传牌，请选 3 张牌传出。</p>
+    </div>
+    <div class="modal-bar">
+      <span class="modal-bar-label" id="passWho">传出对象：AI 西</span>
+      <span class="hand-hint" id="passCount">已选 0 / 3</span>
+    </div>
+    <div class="pass-grid" id="passCards"></div>
+    <p class="pass-tip" id="passTip" hidden></p>
+    <div class="modal-actions">
+      <button class="btn btn-ghost" id="passAuto">自动选牌</button>
+      <button class="btn btn-primary" id="passConfirm" disabled>确认传出</button>
+    </div>
+  </div>
+</div>
+
+<!-- 亮牌 · 仅拱猪 -->
+<div class="overlay" id="ovSell" hidden>
+  <div class="modal">
+    <div class="modal-head">
+      <h2>亮牌</h2>
+      <p class="lead">下面是你这一局的全部手牌。<b>可亮的是猪 / 羊 / 变压器 / 红桃 A</b>，
+        其余灰显的牌不能亮。亮牌后这张牌的分值翻倍；谁收下，谁承担翻倍后的分值。</p>
+    </div>
+    <div class="sell-grid" id="sellCards"></div>
+    <p class="pass-tip" id="sellTip" hidden></p>
+    <div class="modal-actions">
+      <button class="btn btn-ghost" id="sellSkip">不亮牌</button>
+      <button class="btn btn-primary" id="sellConfirm">确认亮牌</button>
+    </div>
+  </div>
+</div>
+
+<!-- 拱猪收牌明细 -->
+<div class="overlay" id="ovSettle" hidden>
+  <div class="modal modal-wide">
+    <div class="result-hero">
+      <span class="result-badge" id="settleBadge">第 1 局收牌明细</span>
+      <h2 class="result-title" id="settleTitle">本局各家收下的牌</h2>
+    </div>
+    <table class="score-table settle-table">
+      <thead><tr><th>玩家</th><th>收下的分牌</th><th class="num">本局</th></tr></thead>
+      <tbody id="settleBody"></tbody>
+    </table>
+    <p class="settle-foot" id="settleFoot"></p>
+    <div class="modal-actions">
+      <button class="btn btn-primary" id="settleNext">计入分数</button>
+    </div>
+  </div>
+</div>
+
+<!-- 本局结算 -->
+<div class="overlay" id="ovResult" hidden>
+  <div class="modal">
+    <div class="result-hero">
+      <span class="result-badge" id="resBadge">本局结束</span>
+      <h2 class="result-title" id="resTitle">结算</h2>
+      <p class="result-sub" id="resSub"></p>
+    </div>
+    <table class="score-table">
+      <thead><tr><th>玩家</th><th class="num">本局</th><th class="num">累计</th></tr></thead>
+      <tbody id="resBody"></tbody>
+    </table>
+    <div class="modal-actions">
+      <button class="btn btn-ghost" id="resHome">返回主页</button>
+      <button class="btn btn-primary" id="resNext">继续下一局</button>
+    </div>
+  </div>
+</div>
+
+<!-- ============================================================
+     扫码邀请（房主）：展示二维码与链接
+     ============================================================ -->
+<div class="overlay" id="ovInvite" hidden>
+  <div class="modal modal-invite">
+    <div class="surface-head">
+      <b>扫码邀请朋友</b>
+      <button class="icon-btn icon-btn-sm" data-close-invite aria-label="关闭">
+        <svg viewBox="0 0 32 32" fill="none"><path d="M12 12l8 8M20 12l-8 8" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
+      </button>
+    </div>
+    <p class="invite-sub">朋友扫码后会先看到确认页，确认无误再入座。</p>
+    <div class="invite-qr-wrap">
+      <canvas id="inviteQr" class="invite-qr" aria-label="邀请二维码"></canvas>
+      <p class="invite-code-line">房间码 <b id="inviteCode">------</b></p>
+    </div>
+    <label class="invite-link-label" for="inviteLink">或复制链接发送</label>
+    <div class="invite-link-row">
+      <input class="room-input" id="inviteLink" readonly aria-label="邀请链接">
+      <button class="btn btn-primary" id="btnCopyInvite">复制</button>
+    </div>
+    <p class="invite-warn">
+      ⚠️ 链接里含房主的联机服务凭据，只发给信任的朋友。被邀请者看不到凭据本身，
+      只能看到房间号和玩家昵称。本局结束后，被邀请者本机留存的房间信息会自动清除。
+    </p>
+  </div>
+</div>
+
+<!-- ============================================================
+     扫码加入确认（被邀请者）：先看一眼房间，再决定进不进
+     ============================================================ -->
+<div class="screen" id="screenJoin" hidden>
+  <main class="joinc">
+    <div class="surface joinc-card">
+      <span class="joinc-badge">收到邀请</span>
+      <h2 class="joinc-title">加入房间 <b id="joincCode">------</b></h2>
+      <p class="joinc-sub">你将使用邀请方提供的联机服务，与房主同桌对局。</p>
+
+      <div class="joinc-row">
+        <span>你的昵称</span>
+        <input class="player-name joinc-name" id="joincName" maxlength="10" value="玩家" aria-label="昵称">
+      </div>
+
+      <p class="joinc-note">
+        只显示房间号与昵称；房主的联机配置不会展示给你。
+        本局结束后，本机留存的房间信息会自动清除，只保留这一局的战绩。
+      </p>
+
+      <div class="joinc-actions">
+        <button class="btn btn-ghost" id="btnJoincCancel">暂不加入</button>
+        <button class="btn btn-primary btn-lg" id="btnJoincGo">进入房间</button>
+      </div>
+      <p class="online-error" id="joincError" hidden></p>
+    </div>
+  </main>
+</div>
+
+<script src="hearts.js"></script>
+<script src="gongzhu.js"></script>
+<script src="ddz.js"></script>
+<script src="players.js"></script>
+<script src="qr.js"></script>
+<script src="net-invite.js"></script>
+<script src="net-config.local.js" onerror="void 0"></script>
+<script src="net-config.js"></script>
+<script src="net-core.js"></script>
+<script src="net-referee.js"></script>
+<script src="net-client.js"></script>
+<script src="collect-anim.js"></script>
+<script src="app.js"></script>
+</body>
+</html>

@@ -1,0 +1,23 @@
+# ============================================================
+# 调试产物：测试脚本、Playwright 截图、探针、动画帧等
+# 统一以 `_` 开头命名（_anim/、_r8_*.png、_test_*.js ...）
+# ⚠️ 这些文件里可能含真实联机凭据（Upstash token），绝不能入库
+# ============================================================
+_*
+outputs/
+
+# 本机 / 工作区私有数据
+.workbuddy/
+.workbuddy-ai/
+__pycache__/
+node_modules/
+.DS_Store
+Thumbs.db
+
+# 联机凭据：只存在本机，用 net-config.local.js 或 localStorage 配置
+net-config.local.js
+
+# 设计交付图与验证截图（体积较大，需要时再单独放开）
+# ⚠️ versions/ 是版本回退归档，刻意**不**忽略
+ui-v2/
+ui-unify/

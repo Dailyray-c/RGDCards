@@ -1,0 +1,351 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>红心大战 / 拱猪</title>
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+<header class="topbar">
+  <div class="brand">
+    <span class="brand-mark"></span>
+    <h1 id="brandTitle">红心大战</h1>
+    <span class="sub" id="brandSub">Hearts · 经典四人牌局</span>
+  </div>
+  <div class="topbar-right">
+    <div class="seg" id="modeSeg" title="玩法模式">
+      <button data-mode="hearts" class="on">红心大战</button>
+      <button data-mode="gongzhu">拱猪</button>
+    </div>
+    <div class="seg" id="diffSeg" title="AI 难度">
+      <button data-diff="easy">入门</button>
+      <button data-diff="normal" class="on">熟练</button>
+      <button data-diff="hard">高手</button>
+    </div>
+    <button class="btn" id="btnRules">规则</button>
+    <button class="btn" id="btnSettings">设置</button>
+    <button class="btn btn-primary" id="btnNew">新的一局</button>
+  </div>
+</header>
+
+<main class="layout">
+  <!-- ==================== 牌桌 ==================== -->
+  <section class="table-wrap">
+    <div class="table" id="table">
+
+      <!-- 公开的亮牌：本局所有玩家亮出的牌，所有人可见 -->
+      <div class="sold-board" id="soldBoard" hidden>
+        <span class="sold-board-title">本局亮牌</span>
+        <div class="sold-board-list" id="soldBoardList"></div>
+      </div>
+
+      <!-- 按真实牌桌方位排布：北(对家) / 西(左) / 东(右) / 你(下) -->
+      <div class="seat-north">
+        <div class="seat" id="seat2">
+          <div class="seat-head">
+            <span class="seat-name" id="name2">AI 北</span>
+            <span class="seat-tag" id="tag2">等待</span>
+          </div>
+          <div class="seat-meta">
+            <span class="pill" id="hand2">13 张</span>
+            <span class="pill" id="score2">0 分</span>
+          </div>
+          <div class="mini-hand" id="mini2"></div>
+          <div class="won-row" id="won2" hidden></div>
+        </div>
+      </div>
+
+      <div class="seat-west">
+        <div class="seat seat-side" id="seat1">
+          <div class="seat-head">
+            <span class="seat-name" id="name1">AI 西</span>
+          </div>
+          <div class="seat-tag-row">
+            <span class="seat-tag" id="tag1">等待</span>
+          </div>
+          <div class="seat-meta">
+            <span class="pill" id="hand1">13 张</span>
+          </div>
+          <div class="seat-meta">
+            <span class="pill" id="score1">0 分</span>
+          </div>
+          <div class="mini-hand mini-vertical" id="mini1"></div>
+          <div class="won-row" id="won1" hidden></div>
+        </div>
+      </div>
+
+      <div class="seat-east">
+        <div class="seat seat-side" id="seat3">
+          <div class="seat-head">
+            <span class="seat-name" id="name3">AI 东</span>
+          </div>
+          <div class="seat-tag-row">
+            <span class="seat-tag" id="tag3">等待</span>
+          </div>
+          <div class="seat-meta">
+            <span class="pill" id="hand3">13 张</span>
+          </div>
+          <div class="seat-meta">
+            <span class="pill" id="score3">0 分</span>
+          </div>
+          <div class="mini-hand mini-vertical" id="mini3"></div>
+          <div class="won-row" id="won3" hidden></div>
+        </div>
+      </div>
+
+      <!-- 中央出牌区：方位与座位对齐 -->
+      <div class="center">
+        <div class="trick-area">
+          <div class="slot-cell pos-nw">
+            <div class="slot" id="slot1"></div>
+            <span class="slot-label">AI 西</span>
+          </div>
+          <div class="slot-cell pos-n">
+            <div class="slot" id="slot2"></div>
+            <span class="slot-label">AI 北</span>
+          </div>
+          <div class="slot-cell pos-ne">
+            <div class="slot" id="slot3"></div>
+            <span class="slot-label">AI 东</span>
+          </div>
+          <div class="slot-cell pos-s">
+            <div class="slot" id="slot0"></div>
+            <span class="slot-label">你</span>
+          </div>
+        </div>
+        <div class="trick-note" id="trickNote">点击「新的一局」开始</div>
+      </div>
+
+      <!-- 我的手牌 -->
+      <div class="hand-area">
+        <div class="hand-head">
+          <span class="hand-title" id="handTitle">你的手牌</span>
+          <span class="hand-hint" id="handHint"></span>
+        </div>
+        <div class="hand-cards" id="handCards"></div>
+        <div class="won-row won-row-me" id="won0" hidden></div>
+      </div>
+    </div>
+
+    <div class="hintbar" id="hintbar" style="margin-top:12px;">
+      <span class="hint-dot"></span>
+      <span id="hintText">准备开始。选择难度后点击「新的一局」发牌。</span>
+    </div>
+  </section>
+
+  <!-- ==================== 侧栏 ==================== -->
+  <aside class="sidebar">
+    <div class="panel">
+      <h3 class="panel-title">计分板
+        <span class="sub" id="scorePanelSub">满 <span id="targetScore">100</span> 分终局</span>
+      </h3>
+      <table class="score-table">
+        <thead>
+          <tr><th>玩家</th><th>本局</th><th>累计</th></tr>
+        </thead>
+        <tbody id="scoreBody"></tbody>
+      </table>
+    </div>
+
+    <div class="panel">
+      <h3 class="panel-title">本局信息</h3>
+      <div class="info-list">
+        <div class="info-row" id="rowPass"><span class="k">传牌方向</span><span class="v" id="infoPass">—</span></div>
+        <div class="info-row"><span class="k">已打墩数</span><span class="v" id="infoTrick">0 / 13</span></div>
+        <div class="info-row" id="rowHearts"><span class="k" id="kHearts">红心已出</span><span class="v" id="infoHearts">0 张</span></div>
+        <div class="info-row" id="rowQueen"><span class="k" id="kQueen">黑桃 Q</span><span class="v" id="infoQueen">未出现</span></div>
+        <div class="info-row" id="rowExtra"><span class="k" id="kExtra">满贯处理</span><span class="v" id="infoMoon">自己 −26</span></div>
+        <div class="info-row" id="rowSell" hidden><span class="k">已亮牌</span><span class="v" id="infoSell">无</span></div>
+      </div>
+    </div>
+
+    <div class="panel">
+      <h3 class="panel-title">牌局记录</h3>
+      <ul class="log-list" id="logList">
+        <li>等待开局…</li>
+      </ul>
+    </div>
+  </aside>
+</main>
+
+<!-- ==================== 弹窗：亮牌（仅拱猪） ==================== -->
+<div class="overlay" id="ovSell" hidden>
+  <div class="modal">
+    <h2>亮牌（卖牌）</h2>
+    <p class="lead">
+      勾选你要<b>亮出</b>的牌。亮出的牌若被你自己收下，分数<b>翻倍</b>；
+      若被对家收下，他们的分数同样翻倍。这是一次赌注。
+    </p>
+    <div class="sell-grid" id="sellCards"></div>
+    <p class="pass-tip" id="sellTip" hidden></p>
+    <div class="modal-actions">
+      <button class="btn" id="sellSkip">不亮牌</button>
+      <button class="btn btn-primary" id="sellConfirm">确认亮牌</button>
+    </div>
+  </div>
+</div>
+
+<!-- ==================== 弹窗：发牌/传牌 ==================== -->
+<div class="overlay" id="ovPass" hidden>
+  <div class="modal">
+    <h2>选择要传出的牌</h2>
+    <p class="lead" id="passLead">本局向左传牌，请选 3 张牌传出。</p>
+    <div class="pass-target-bar">
+      <span class="pass-target-label" id="passWho">传出对象：AI 西</span>
+      <span class="hand-hint" id="passCount">已选 0 / 3</span>
+    </div>
+    <div class="pass-grid" id="passCards"></div>
+    <p class="pass-tip" id="passTip" hidden></p>
+    <div class="modal-actions">
+      <button class="btn" id="passAuto">自动选牌</button>
+      <button class="btn btn-primary" id="passConfirm" disabled>确认传出</button>
+    </div>
+  </div>
+</div>
+
+<!-- ==================== 弹窗：拱猪结算明细 ==================== -->
+<div class="overlay" id="ovSettle" hidden>
+  <div class="modal modal-wide">
+    <div class="result-hero">
+      <div class="result-badge" id="settleBadge">第 1 局收牌明细</div>
+      <h2 class="result-title" id="settleTitle">本局各家收下的牌</h2>
+    </div>
+    <table class="score-table settle-table">
+      <thead><tr><th>玩家</th><th>收下的分牌</th><th>本局</th></tr></thead>
+      <tbody id="settleBody"></tbody>
+    </table>
+    <p class="settle-foot" id="settleFoot"></p>
+    <div class="modal-actions">
+      <button class="btn btn-primary" id="settleNext">计入分数</button>
+    </div>
+  </div>
+</div>
+
+<!-- ==================== 弹窗：本局结算 ==================== -->
+<div class="overlay" id="ovResult" hidden>
+  <div class="modal">
+    <div class="result-hero">
+      <div class="result-badge" id="resBadge">本局结束</div>
+      <h2 class="result-title" id="resTitle">结算</h2>
+      <p class="result-sub" id="resSub"></p>
+    </div>
+    <table class="score-table">
+      <thead><tr><th>玩家</th><th>本局</th><th>累计</th></tr></thead>
+      <tbody id="resBody"></tbody>
+    </table>
+    <div class="modal-actions">
+      <button class="btn btn-primary" id="resNext">继续下一局</button>
+    </div>
+  </div>
+</div>
+
+<!-- ==================== 弹窗：规则 ==================== -->
+<div class="overlay" id="ovRules" hidden>
+  <div class="modal">
+    <h2 id="rulesTitle">红心大战规则</h2>
+    <p class="lead" id="rulesLead">四人各 13 张牌，目标是尽量少收罚分。</p>
+
+    <div class="rules" id="rulesHearts">
+      <p><b>罚分牌</b>：每张红心 1 分，黑桃 Q（猪）13 分，一副牌共 26 分。</p>
+      <p><b>基本流程</b>：每局开始传牌，然后 13 墩。每墩由上一墩赢家首引，其余三家依次出牌。</p>
+      <p><b>必须跟花色</b>：手里有首引花色就一定要跟出，不能垫其他花色。</p>
+      <p><b>四条规定</b>：① 首轮不能出红心 ② 首轮不能出黑桃 Q ③ 首引不能出红心 ④ 有牌必须跟花色。若手里只剩下被禁止的牌，则解禁。</p>
+      <p><b>首墩首引</b>：第一墩固定由持梅花 2 者首引，且他只能出梅花 2。</p>
+      <p><b>收分</b>：比大小只看首引花色，最大者收下这一墩的所有罚分。</p>
+      <p><b>满贯（收月亮）</b>：一人独收全部 26 分即为满贯。按当前设置，可让自己 −26 分，或让其余三家各 +26 分。</p>
+      <p><b>终局</b>：任一玩家累计达到 100 分即结束，总分最低者获胜。</p>
+      <p><b>传牌轮换</b>：向左 → 向右 → 传给对家 → 不传，如此循环。</p>
+    </div>
+
+    <div class="rules" id="rulesGongzhu" hidden>
+      <p><b>分值牌</b>：🐷 黑桃 Q（猪）<b>−100</b>；🐑 方块 J（羊）<b>+100</b>；⚡ 梅花 10 是<b>变压器</b>，自身不计分。</p>
+      <p><b>红桃扣分</b>：红桃按牌面扣分 —— A −50、K −40、Q −30、J −20、10 −10，2~9 无分（红桃合计 −150）。</p>
+      <p><b>变压器</b>：收下 ♣10 的人本局<b>总分翻倍</b>；若他本局刚好 0 分，则改为 <b>+50</b>。</p>
+      <p><b>满红</b>：一人收齐全部 13 张红桃，红桃部分整体变为 <b>+200</b>（猪、羊照常另计）。</p>
+      <p><b>亮牌（卖牌）</b>：开局前可亮出 猪 / 羊 / 变压器 / 红桃A。亮过的牌在结算时<b>该张分数翻倍</b>——自己吃到亏双倍，被对家吃到对方也双倍。</p>
+      <p><b>必须跟花色</b>：手里有首引花色就必须跟出，不能垫其他花色。</p>
+      <p><b>首墩首引</b>：第一墩固定由持梅花 2 者首引，且他只能出梅花 2。</p>
+      <p><b>与红心大战的区别</b>：拱猪<b>没有</b>"首墩禁红心 / 禁猪"，也<b>没有</b>"首引禁红心"——红桃和猪随时都能出。</p>
+      <p><b>终局</b>：任一家累计分 ≤ 设定阈值（默认 −1000）即结束，累计分<b>最高</b>者获胜。</p>
+      <p><b>传牌轮换</b>：向左 → 向右 → 传给对家 → 不传，如此循环。</p>
+    </div>
+
+    <div class="modal-actions">
+      <button class="btn btn-primary" id="rulesClose">知道了</button>
+    </div>
+  </div>
+</div>
+
+<!-- ==================== 弹窗：设置 ==================== -->
+<div class="overlay" id="ovSettings" hidden>
+  <div class="modal">
+    <h2>设置</h2>
+    <p class="lead">规则变体与对局选项。</p>
+
+    <div class="switch-row">
+      <div class="switch-text">满贯：独收者自己 −26 分
+        <div class="d">关闭后改为其余三家各 +26 分</div>
+      </div>
+      <button class="switch on" id="swMoon" role="switch" aria-checked="true"></button>
+    </div>
+
+    <div class="switch-row">
+      <div class="switch-text">启用传牌环节
+        <div class="d">关闭后每局直接发牌开打</div>
+      </div>
+      <button class="switch on" id="swPass" role="switch" aria-checked="true"></button>
+    </div>
+    <p class="switch-note" id="passNote" hidden>拱猪没有传牌规则，发牌后直接开打。</p>
+
+    <div class="switch-row">
+      <div class="switch-text">延迟出牌动画
+        <div class="d">AI 出牌之间保留可观战间隔</div>
+      </div>
+      <button class="switch on" id="swDelay" role="switch" aria-checked="true"></button>
+    </div>
+
+    <div id="gzOptions" hidden>
+      <div class="opt-sep"></div>
+      <h3 class="opt-title">拱猪选项</h3>
+
+      <div class="switch-row">
+        <div class="switch-text">启用亮牌（卖牌）环节
+          <div class="d">开局前可亮出 猪 / 羊 / 变压器 / 红桃A，亮出的牌分数翻倍</div>
+        </div>
+        <button class="switch on" id="swSell" role="switch" aria-checked="true"></button>
+      </div>
+
+      <div class="field-row">
+        <label class="field-label" for="inpThreshold">终局分数</label>
+        <div class="field-ctl">
+          <input type="number" id="inpThreshold" class="num-input" value="-1000" step="100">
+          <span class="field-hint">任一家累计分 ≤ 此值时结束（默认 −1000），累计分<b>最高</b>者获胜</span>
+        </div>
+      </div>
+
+      <div class="field-row">
+        <label class="field-label">快捷选择</label>
+        <div class="field-ctl">
+          <div class="chip-row" id="thresholdChips">
+            <button class="chip" data-v="-500">−500</button>
+            <button class="chip on" data-v="-1000">−1000</button>
+            <button class="chip" data-v="-2000">−2000</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="modal-actions">
+      <button class="btn btn-primary" id="settingsClose">完成</button>
+    </div>
+  </div>
+</div>
+
+<script src="hearts.js"></script>
+<script src="gongzhu.js"></script>
+<script src="players.js"></script>
+<script src="app.js"></script>
+</body>
+</html>

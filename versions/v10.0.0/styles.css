@@ -1,0 +1,2761 @@
+/* ============================================================
+ * 红心大战 · 拱猪 —— 新版视觉层（UI v2）
+ * 零依赖手写 CSS。浅色简约：中性底 + 单一强调色，
+ * 红心 / 拱猪各持一种「模式色」，牌面花色身份始终由 color 承载。
+ *
+ * 结构：token → 通用组件 → 主页 → 游戏页 → 牌面 → 面板/弹窗 → 响应式
+ * ============================================================ */
+
+/* ============================================================
+ * 1. 设计基调
+ * ============================================================ */
+:root {
+  /* 底色与面 */
+  --bg-page: #F4F6F8;
+  --surface: #FFFFFF;
+  --inset: #EEF1F5;
+  --inset-2: #F7F8FA;
+  --table: #EAEFEC;
+  --table-plate: #E1E7E3;
+
+  /* 线 */
+  --line-1: #E4E8EE;
+  --line-2: #EBEEF3;
+  --line-3: #D5DBE4;
+
+  /* 墨 */
+  --text-1: #14181F;
+  --text-2: #5C6675;
+  --text-3: #98A1AE;
+  --text-4: #C3CAD4;
+
+  /* 语义色 */
+  --hearts: #E0484D;
+  --hearts-soft: #FDEDED;
+  --gongzhu: #4E5BD8;
+  --gongzhu-soft: #EDEFFC;
+  --jade: #1E8E76;
+  --jade-soft: #E7F3F0;
+  --jade-ink: #3F6F64;
+  --gold: #C99A2E;
+  --gold-soft: #FBF3E2;
+  --danger: #D93A3A;
+  --warn: #C9821B;
+
+  /* 当前模式色（由 body[data-mode] 切换） */
+  --mode: var(--hearts);
+  --mode-soft: var(--hearts-soft);
+
+  /* 圆角 */
+  --r-xs: 6px;
+  --r-sm: 8px;
+  --r-md: 12px;
+  --r-lg: 16px;
+  --r-xl: 20px;
+  --r-pill: 999px;
+
+  /* 阴影 */
+  --sh-card: 0 1px 2px rgba(20, 24, 31, 0.04), 0 4px 12px rgba(20, 24, 31, 0.04);
+  --sh-pop: 0 8px 28px rgba(20, 24, 31, 0.10);
+  --sh-modal: 0 24px 60px rgba(20, 24, 31, 0.18);
+
+  /* 牌面尺寸（手牌 / 出牌、桌面端基准） */
+  --card-w: 84px;
+  --card-h: 116px;
+  --trick-w: 86px;
+  --trick-h: 118px;
+
+  /* 弹窗里「供点选的牌」（亮牌 / 传牌）尺寸。
+     刻意与 --card-w 分开：牌桌上的手牌要尽量不占地方，而弹窗里的牌是
+     点击目标，需要更大更好点。两者共用同一个变量时，手机端为了牌桌瘦身
+     把 --card-w 压到 48px，会连带把弹窗里的牌也压小 —— 又小又挤。 */
+  --pick-w: 84px;
+  --pick-h: 116px;
+  --pick-gap: 12px;
+
+  /* 侧座位宽度 */
+  --seat-side-w: 208px;
+
+  /* 顶部栏高度 */
+  --topbar-h: 68px;
+}
+
+/* 模式色切换：拱猪用靛蓝，红心大战用暖红 */
+body[data-mode="gongzhu"] {
+  --mode: var(--gongzhu);
+  --mode-soft: var(--gongzhu-soft);
+}
+
+* { box-sizing: border-box; }
+
+[hidden] { display: none !important; }
+
+html, body { height: 100%; }
+
+body {
+  margin: 0;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC",
+               "Hiragino Sans GB", "Microsoft YaHei", "Noto Sans SC", sans-serif;
+  font-size: 14px;
+  line-height: 1.55;
+  color: var(--text-1);
+  background: var(--bg-page);
+  -webkit-font-smoothing: antialiased;
+  -webkit-tap-highlight-color: transparent;
+}
+
+button { font-family: inherit; font-size: inherit; color: inherit; cursor: pointer; border: none; background: none; }
+input { font-family: inherit; }
+h1, h2, h3, p, ul, ol { margin: 0; }
+ul, ol { padding: 0; list-style: none; }
+
+/* 屏幕容器 */
+.screen {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  height: 100dvh;
+}
+
+/* 按断点切换的可见性（默认桌面） */
+.only-mobile { display: none !important; }
+
+/* ============================================================
+ * 2. 通用组件
+ * ============================================================ */
+
+/* ---------- 顶部栏 ---------- */
+.topbar {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  height: var(--topbar-h);
+  padding: 0 28px;
+  background: var(--surface);
+  border-bottom: 1px solid var(--line-1);
+  z-index: 20;
+}
+/* 局内弹窗打开时仍保留返回入口，便于暂停当前牌局。 */
+.screen#screenGame > .topbar { position: relative; z-index: 70; }
+
+.topbar-left, .topbar-right { display: flex; align-items: center; gap: 10px; }
+.topbar-left { gap: 14px; min-width: 0; }
+
+.brand { display: flex; align-items: center; gap: 11px; min-width: 0; }
+.brand-mark {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 32px; height: 32px;
+  border-radius: 10px;
+  background: var(--hearts-soft);
+  color: var(--hearts);
+}
+.brand-mark svg { width: 22px; height: 22px; }
+body[data-mode="gongzhu"] .brand-mark { background: var(--gongzhu-soft); color: var(--gongzhu); }
+
+.brand-text { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+.brand-text b { font-size: 17px; font-weight: 700; letter-spacing: -0.2px; white-space: nowrap; }
+.brand-text i { font-style: normal; font-size: 11px; color: var(--text-3); white-space: nowrap; }
+
+/* ---------- 按钮 ---------- */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  height: 38px;
+  padding: 0 16px;
+  border-radius: var(--r-sm);
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-2);
+  background: var(--surface);
+  border: 1px solid var(--line-1);
+  transition: background .15s, border-color .15s, color .15s, transform .1s;
+  white-space: nowrap;
+}
+.btn:hover { background: var(--inset-2); border-color: var(--line-3); }
+.btn:active { transform: translateY(1px); }
+
+.btn-primary {
+  color: #fff;
+  font-weight: 600;
+  background: var(--text-1);
+  border-color: var(--text-1);
+}
+.btn-primary:hover { background: #22282F; border-color: #22282F; }
+
+.btn-soft { background: var(--inset); border-color: transparent; }
+.btn-soft:hover { background: var(--line-1); border-color: transparent; }
+
+.btn-ghost { background: transparent; border-color: var(--line-1); }
+.btn-ghost:hover { background: var(--inset-2); }
+
+.btn-lg { height: 52px; padding: 0 24px; font-size: 15px; border-radius: var(--r-md); }
+
+.btn:disabled { opacity: .4; cursor: not-allowed; }
+.btn:disabled:hover { background: var(--surface); border-color: var(--line-1); }
+
+.icon-btn {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 38px; height: 38px;
+  border-radius: var(--r-sm);
+  color: var(--text-2);
+  background: var(--surface);
+  border: 1px solid var(--line-1);
+  transition: background .15s, color .15s;
+}
+.icon-btn:hover { background: var(--inset-2); }
+.icon-btn svg { width: 22px; height: 22px; }
+.icon-btn-sm { width: 32px; height: 32px; border: none; border-radius: var(--r-sm); background: var(--inset); }
+.icon-btn-sm svg { width: 18px; height: 18px; }
+.icon-btn-sm:hover { background: var(--line-1); }
+
+.link {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-2);
+  padding: 2px 0;
+}
+.link:hover { color: var(--text-1); }
+
+/* ---------- 面板块 ----------
+ * ⚠️ 不能叫 .card —— .card 是扑克牌（见第 5 节，带 width: var(--card-w)），
+ *    两者同名会把面板压成一张牌的宽度。
+ */
+.surface {
+  background: var(--surface);
+  border: 1px solid var(--line-1);
+  border-radius: var(--r-lg);
+  padding: 18px 20px;
+}
+.surface-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+.surface-head b { font-size: 14px; font-weight: 600; }
+
+/* ---------- 分组 ---------- */
+.group { display: flex; flex-direction: column; gap: 10px; }
+.group-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-3);
+  letter-spacing: .6px;
+}
+.group-note { font-size: 12px; color: var(--text-3); line-height: 1.6; }
+.group-card { padding: 4px 16px; display: flex; flex-direction: column; }
+.group-card > .switch-row:first-child,
+.group-card > .link-row:first-child,
+.group-card > .field-row:first-child { border-top: none; }
+
+/* ---------- 开关行 ---------- */
+.switch-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 14px 0;
+  border-top: 1px solid var(--line-2);
+}
+.opt-card { padding: 4px 20px; }
+.opt-card > .switch-row:first-child { border-top: none; }
+.switch-text {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  font-size: 14px;
+  font-weight: 500;
+  min-width: 0;
+}
+.switch-text i { font-style: normal; font-size: 12px; font-weight: 400; color: var(--text-3); }
+.switch-note { font-size: 12px; color: var(--text-3); padding: 0 0 12px; }
+
+.switch {
+  flex: none;
+  position: relative;
+  width: 44px; height: 26px;
+  border-radius: var(--r-pill);
+  background: var(--line-3);
+  transition: background .18s;
+}
+.switch::after {
+  content: "";
+  position: absolute;
+  top: 3px; left: 3px;
+  width: 20px; height: 20px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 1px 3px rgba(20, 24, 31, .25);
+  transition: transform .18s;
+}
+.switch.on { background: var(--text-1); }
+.switch.on::after { transform: translateX(18px); }
+.switch:disabled { opacity: .45; cursor: not-allowed; }
+
+/* ---------- 分段控件 ---------- */
+.seg {
+  display: flex;
+  gap: 4px;
+  padding: 4px;
+  background: var(--inset);
+  border-radius: var(--r-md);
+}
+.seg button {
+  flex: 1 1 0;
+  height: 40px;
+  border-radius: var(--r-sm);
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-2);
+  transition: background .15s, color .15s;
+}
+.seg button:hover { color: var(--text-1); }
+.seg button.on { background: var(--surface); color: var(--text-1); font-weight: 600; box-shadow: var(--sh-card); }
+
+/* ---------- 芯片 ---------- */
+.chip-row { display: flex; flex-wrap: wrap; gap: 8px; }
+.chip {
+  height: 32px;
+  padding: 0 14px;
+  border-radius: var(--r-sm);
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-2);
+  background: var(--surface);
+  border: 1px solid var(--line-1);
+}
+.chip:hover { border-color: var(--line-3); }
+.chip.on { color: #fff; font-weight: 600; background: var(--text-1); border-color: var(--text-1); }
+
+/* ---------- 字段 ---------- */
+.field { display: flex; flex-direction: column; gap: 10px; }
+.field-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.field-label { font-size: 13px; font-weight: 600; }
+.field-hint { font-size: 12px; color: var(--text-3); font-weight: 400; }
+.field-row { display: flex; flex-direction: column; gap: 9px; padding: 14px 0; border-top: 1px solid var(--line-2); }
+.field-ctl { display: flex; flex-direction: column; gap: 10px; align-items: flex-start; }
+.num-input {
+  width: 120px; height: 36px;
+  padding: 0 12px;
+  border-radius: var(--r-sm);
+  border: 1px solid var(--line-1);
+  background: var(--surface);
+  color: var(--text-1);
+  font-size: 14px;
+  font-weight: 500;
+}
+.num-input:focus { outline: none; border-color: var(--text-3); }
+
+/* ---------- 链接行 ---------- */
+.link-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  width: 100%;
+  padding: 14px 0;
+  border-top: 1px solid var(--line-2);
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-1);
+  text-align: left;
+}
+.link-row:first-child { border-top: none; }
+.link-row em { font-style: normal; font-size: 13px; font-weight: 400; color: var(--text-3); }
+button.link-row:hover { color: var(--mode); }
+
+/* ---------- 头像 ---------- */
+.avatar {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 44px; height: 44px;
+  border-radius: 50%;
+  background: var(--inset);
+  color: var(--text-3);
+}
+.avatar svg { width: 26px; height: 26px; }
+.avatar-md { width: 48px; height: 48px; }
+.avatar-md svg { width: 28px; height: 28px; }
+.avatar-sm { width: 44px; height: 44px; }
+
+/* ============================================================
+ * 3. 主页（大厅）
+ * ============================================================ */
+.home {
+  flex: 1 1 auto;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 360px;
+  align-content: start;
+  gap: 36px;
+  padding: 32px 40px 40px;
+  max-width: 1400px;
+  width: 100%;
+  margin: 0 auto;
+  overflow-y: auto;
+  min-height: 0;
+}
+
+.home-main { display: flex; flex-direction: column; gap: 24px; min-width: 0; }
+
+.home-hero { display: flex; flex-direction: column; gap: 6px; }
+.eyebrow {
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 1.5px;
+  color: var(--text-3);
+}
+.home-hero h1 { font-size: 28px; font-weight: 700; letter-spacing: -0.4px; }
+.home-hero p { font-size: 13px; color: var(--text-2); max-width: 560px; }
+
+/* ---------- 模式卡 ---------- */
+.mode-cards { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+
+.mode-card {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 20px 22px;
+  text-align: left;
+  background: var(--surface);
+  border: 1.5px solid var(--line-1);
+  border-radius: var(--r-lg);
+  transition: border-color .15s, box-shadow .15s;
+}
+.mode-card:hover { border-color: var(--line-3); }
+
+.mode-top { display: flex; align-items: center; justify-content: space-between; }
+.mode-mark {
+  display: grid;
+  place-items: center;
+  width: 40px; height: 40px;
+  border-radius: var(--r-md);
+  color: var(--hearts);
+  background: var(--hearts-soft);
+}
+.mode-mark svg { width: 26px; height: 26px; }
+.mode-card[data-mode="gongzhu"] .mode-mark { color: var(--gongzhu); background: var(--gongzhu-soft); }
+
+.radio {
+  width: 20px; height: 20px;
+  border-radius: 50%;
+  border: 2px solid var(--line-3);
+  background: var(--surface);
+  transition: border-color .15s, background .15s, box-shadow .15s;
+}
+.mode-card[data-mode="hearts"].is-on { border-color: var(--hearts); }
+.mode-card[data-mode="gongzhu"].is-on { border-color: var(--gongzhu); }
+.mode-card[data-mode="hearts"].is-on .radio {
+  border-color: var(--hearts);
+  background: var(--hearts);
+  box-shadow: inset 0 0 0 4px #fff;
+}
+.mode-card[data-mode="gongzhu"].is-on .radio {
+  border-color: var(--gongzhu);
+  background: var(--gongzhu);
+  box-shadow: inset 0 0 0 4px #fff;
+}
+
+.mode-name { font-size: 19px; font-weight: 600; }
+.mode-desc { font-size: 13px; color: var(--text-2); }
+.mode-tags { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 2px; }
+.mode-tags i {
+  font-style: normal;
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--text-2);
+  background: var(--inset);
+  padding: 4px 10px;
+  border-radius: var(--r-xs);
+}
+
+/* ---------- 主操作 ---------- */
+.cta-row { display: flex; gap: 12px; margin-top: 2px; }
+.cta-row .btn-primary { flex: 1 1 auto; }
+#btnContinue { flex: none; }
+
+/* ---------- 右列 ---------- */
+.home-side {
+  align-self: start;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  min-width: 0;
+}
+
+.player-card { display: flex; align-items: center; gap: 14px; padding: 18px 20px; }
+.player-text { display: flex; flex-direction: column; gap: 3px; min-width: 0; flex: 1 1 auto; }
+.player-text b { font-size: 15px; font-weight: 600; }
+.player-text i { font-style: normal; font-size: 12px; color: var(--text-3); }
+.player-name {
+  width: 100%;
+  padding: 0;
+  border: none;
+  background: none;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text-1);
+}
+.player-name:focus { outline: none; color: var(--mode); }
+.player-name::placeholder { color: var(--text-4); }
+
+.history { display: flex; flex-direction: column; }
+.history-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 0;
+  border-top: 1px solid var(--line-2);
+}
+.history-row:first-child { border-top: none; }
+.history-row .h-l { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.history-row .h-l b { font-size: 13px; font-weight: 500; }
+.history-row .h-l i { font-style: normal; font-size: 11px; color: var(--text-3); }
+.history-row .h-r { font-size: 15px; font-weight: 700; color: var(--text-2); }
+.history-row .h-r.pos { color: var(--jade); }
+.history-row .h-r.neg { color: var(--hearts); }
+.history-empty { font-size: 12px; color: var(--text-3); padding: 8px 0 4px; line-height: 1.7; }
+
+.tip-card { background: var(--jade-soft); border-color: transparent; }
+.tip-title { font-size: 12px; font-weight: 600; color: var(--jade); }
+.tip-card p { font-size: 12px; color: var(--jade-ink); line-height: 1.65; margin-top: 7px; }
+
+/* ============================================================
+ * 4. 游戏页 + 牌桌
+ * ============================================================ */
+.table-wrap {
+  flex: 1 1 auto;
+  display: flex;
+  min-height: 0;
+  padding: 22px;
+}
+
+.table {
+  flex: 1 1 auto;
+  display: grid;
+  grid-template-areas:
+    "sold  sold   sold"
+    ".     north  ."
+    "west  center east"
+    "hint  hint   hint"
+    "myscore myscore myscore"
+    "hand  hand   hand";
+  grid-template-columns: var(--seat-side-w) minmax(0, 1fr) var(--seat-side-w);
+  grid-template-rows: auto auto minmax(0, 1fr) auto auto auto;
+  gap: 12px;
+  padding: 22px;
+  background: var(--table);
+  border-radius: var(--r-xl);
+  min-height: 0;
+  overflow: hidden;
+}
+
+/* ---------- 亮牌公示条 ---------- */
+.sold-board {
+  grid-area: sold;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 14px;
+  background: var(--gold-soft);
+  border-radius: var(--r-md);
+  min-width: 0;
+  overflow-x: auto;
+}
+.sold-board-title { flex: none; font-size: 11px; font-weight: 600; color: var(--gold); letter-spacing: .5px; }
+.sold-board-list { display: flex; gap: 8px; min-width: 0; }
+
+.sold-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex: none;
+  padding: 4px 9px;
+  border-radius: var(--r-xs);
+  background: rgba(255, 255, 255, .72);
+  font-size: 11px;
+}
+.sold-chip.mine { background: #fff; box-shadow: 0 0 0 1.5px var(--gold); }
+.sold-chip-who { color: var(--text-3); }
+.sold-chip-card { font-weight: 700; color: var(--text-1); }
+.sold-chip-card.red { color: var(--hearts); }
+.sold-chip-delta { color: var(--text-2); font-weight: 500; }
+
+/* ---------- 座位 ---------- */
+.seat-north { grid-area: north; display: flex; justify-content: center; min-width: 0; }
+.seat-west  { grid-area: west;  display: flex; align-items: center; min-width: 0; }
+.seat-east  { grid-area: east;  display: flex; align-items: center; justify-content: flex-end; min-width: 0; }
+
+.seat {
+  position: relative;
+  background: var(--surface);
+  border: 1px solid var(--line-1);
+  border-radius: var(--r-md);
+  transition: box-shadow .2s, border-color .2s;
+}
+.seat.active {
+  border-color: var(--mode);
+  box-shadow: 0 0 0 3px var(--mode-soft);
+}
+
+.seat-north-card {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  width: 100%;
+  max-width: 560px;
+  padding: 10px 22px;
+  min-height: 76px;
+}
+.seat-text { display: flex; flex-direction: column; gap: 3px; min-width: 0; flex: none; }
+.seat-spacer { flex: 1 1 auto; min-width: 0; }
+/* 北家：名字后面紧跟「已收关键牌」，再靠右放「剩 N 张 · 已收 M 分」。
+   中段用 won-row-mid 承载，避免和右侧 meta 抢宽度导致文案错位。 */
+.seat-north-card .won-row-mid {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 3px;
+  flex: none;
+  max-width: 40%;
+}
+.seat-north-card .won-row-mid .won-label { font-size: 11px; }
+.seat-north-card .won-row-mid .won-cards { justify-content: flex-start; }
+.seat-north-card .seat-meta { text-align: right; flex: none; }
+
+.seat-side {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 22px 18px;
+  text-align: center;
+}
+
+/* 名字一律不折行：「AI 北」被拆成两行会读成两个人 */
+.seat-name { font-size: 16px; font-weight: 600; white-space: nowrap; }
+.seat-side .seat-name { font-size: 16px; }
+.seat-tag { font-style: normal; font-size: 13px; color: var(--text-3); white-space: nowrap; }
+.seat-tag.thinking { color: var(--mode); font-weight: 600; }
+.seat-meta {
+  display: inline-flex;
+  align-items: baseline;
+  flex-wrap: nowrap;
+  gap: 6px;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-2);
+  min-width: 0;
+}
+.seat-meta b, .seat-meta i { white-space: nowrap; }
+.seat-meta b { font-weight: 500; }
+.seat-meta i { font-style: normal; color: var(--text-3); }
+.seat-meta i::before { content: "· "; }
+.seat-side .seat-meta { font-size: 12px; }
+
+.mini-hand { display: none; }
+.won-row { display: none; }
+
+/* ---------- 中央出牌区 ---------- */
+.center { grid-area: center; display: flex; align-items: center; justify-content: center; min-height: 0; min-width: 0; }
+
+.trick-area {
+  display: grid;
+  grid-template-areas:
+    "nw n ne"
+    ".  s .";
+  grid-template-columns: repeat(3, auto);
+  place-items: center;
+  gap: 24px 26px;
+  width: 100%;
+  max-width: 760px;
+  height: 100%;
+  max-height: 440px;
+  padding: 20px;
+  background: var(--table-plate);
+  border-radius: var(--r-xl);
+}
+
+.slot-cell { display: flex; flex-direction: column; align-items: center; gap: 8px; }
+.pos-nw { grid-area: nw; }
+.pos-n  { grid-area: n; }
+.pos-ne { grid-area: ne; }
+.pos-s  { grid-area: s; }
+
+.slot-label { font-size: 13px; color: var(--text-3); }
+.pos-s .slot-label { font-weight: 600; color: var(--text-2); }
+
+/* 空出牌位：虚线描边占位 */
+.slot {
+  width: var(--trick-w);
+  height: var(--trick-h);
+  border-radius: var(--r-md);
+  display: grid;
+  place-items: center;
+}
+.slot:empty {
+  background: var(--table-plate);
+  border: 1px dashed #CFD8D3;
+  box-shadow: inset 0 0 0 4px rgba(255, 255, 255, .35);
+}
+.slot.filled { background: none; border: none; box-shadow: none; }
+
+/* ---------- 手牌 ---------- */
+.hand-area { grid-area: hand; display: flex; flex-direction: column; gap: 14px; min-width: 0; }
+.hand-head { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+.hand-title { font-size: 16px; font-weight: 600; }
+/* ⚠️ `flex: none` 不能省。
+ * .hand-cards 是 .hand-area（column flex）的子项，默认 flex-shrink:1 ——
+ * 一旦整屏高度不够，它会被**压扁**；而 `overflow-x: auto` 按规范会把
+ * overflow-y 也算成 auto（visible + 非 visible 不共存），于是手牌被纵向裁掉半截，
+ * 玩家看到的是「手牌缺了个底」。宁可让中间的出牌区去挤，也不能裁手牌。 */
+.hand-cards { flex: none; display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
+.hand-cards.is-waiting { cursor: default; }
+.hand-cards .card.waiting {
+  cursor: default;
+  opacity: .48;
+  filter: saturate(.25);
+  box-shadow: 0 1px 0 rgba(20, 24, 31, .04);
+}
+.hand-cards .card.waiting:hover { transform: none; border-color: var(--line-1); }
+
+/* ---------- 状态提示条 ---------- */
+.hintbar {
+  grid-area: hint;
+  justify-self: center;
+  align-self: center;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 8px 18px;
+  border-radius: var(--r-pill);
+  background: rgba(255, 255, 255, .82);
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--text-2);
+  max-width: 100%;
+  text-align: center;
+}
+.hint-dot {
+  flex: none;
+  width: 7px; height: 7px;
+  border-radius: 50%;
+  background: var(--mode);
+}
+.hintbar.ok { color: var(--jade); }
+.hintbar.ok .hint-dot { background: var(--jade); }
+.hintbar.err { color: var(--hearts); }
+.hintbar.err .hint-dot { background: var(--hearts); }
+
+/* ---------- 本局我的扣分 ---------- */
+.myscore {
+  grid-area: myscore;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 6px 14px;
+  padding: 9px 18px;
+  border-radius: var(--r-lg);
+  background: var(--surface);
+  border: 1px solid var(--line-1);
+  box-shadow: 0 1px 2px rgba(20, 24, 31, .04);
+  max-width: 100%;
+  min-width: 0;
+  font-size: 13px;
+}
+.myscore-head {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 7px;
+  padding-right: 12px;
+  border-right: 1px solid var(--line-2);
+}
+.myscore-title { color: var(--text-3); font-size: 12px; white-space: nowrap; }
+.myscore-total {
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--hearts);
+  font-variant-numeric: tabular-nums;
+}
+.myscore.is-safe .myscore-total { color: var(--jade); }
+.myscore.is-zero .myscore-total { color: var(--text-3); }
+.myscore.is-bad .myscore-total { color: var(--hearts); }
+.myscore-detail {
+  color: var(--text-2);
+  font-size: 12px;
+  display: inline-flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px 8px;
+  min-width: 0;
+}
+.myscore-detail .ms-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 7px;
+  border-radius: var(--r-xs);
+  background: var(--inset);
+  white-space: nowrap;
+}
+.myscore-detail .ms-chip em { font-style: normal; font-weight: 700; color: var(--hearts); }
+.myscore-detail .ms-chip.pos em { color: var(--jade); }
+.myscore-detail .ms-chip.zero em { color: var(--text-3); font-weight: 600; }
+.myscore-detail .ms-note { color: var(--gold); font-weight: 600; font-size: 11px; }
+.myscore-empty { color: var(--text-3); font-size: 12px; }
+
+/* ---------- 模式标识（顶栏） ---------- */
+.mode-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  height: 34px;
+  padding: 0 14px;
+  border-radius: var(--r-sm);
+  background: var(--mode-soft);
+  color: var(--mode);
+  font-size: 13px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.mode-chip .dot { width: 8px; height: 8px; border-radius: 50%; background: currentColor; }
+.round-text { font-size: 15px; color: var(--text-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+/* ============================================================
+ * 5. 牌面
+ * ============================================================ */
+.card {
+  position: relative;
+  flex: none;
+  display: block;
+  width: var(--card-w);
+  height: var(--card-h);
+  padding: 0;
+  background: var(--surface);
+  border: 1px solid var(--line-1);
+  border-radius: var(--r-md);
+  box-shadow: var(--sh-card);
+  color: var(--text-1);
+  user-select: none;
+  transition: transform .14s, box-shadow .14s, border-color .14s;
+}
+.card.red { color: var(--hearts); }
+.card.black { color: var(--text-1); }
+
+.card-corner {
+  position: absolute;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  line-height: 1;
+  gap: 1px;
+}
+.card-corner.tl { top: 7px; left: 7px; }
+.card-corner.br { bottom: 7px; right: 7px; transform: rotate(180deg); }
+.card-rank { font-size: 17px; font-weight: 700; letter-spacing: -0.5px; }
+.card-suit-sm { width: 12px; height: 12px; }
+
+.card-suit-big {
+  position: absolute;
+  top: 50%; left: 50%;
+  width: 40%; height: 40%;
+  transform: translate(-50%, -50%);
+  opacity: .9;
+}
+
+/* 出牌区里的牌 */
+.slot .card { width: var(--trick-w); height: var(--trick-h); }
+
+/* 可出 / 不可出 */
+.hand-cards .card.playable { cursor: pointer; }
+.hand-cards .card:hover, .hand-cards .card.picked { z-index: 3; }
+/* 悬停只轻抬 6px：手牌折成两排时间隙只有 8px，抬 10px 会啃到上一排 */
+.hand-cards .card.playable:hover { transform: translateY(-6px); border-color: var(--mode); }
+.hand-cards .card.blocked { opacity: .45; cursor: not-allowed; filter: saturate(.35); }
+.hand-cards .card.blocked:hover { transform: none; }
+.hand-cards .card.blocked::after {
+  content: "";
+  position: absolute;
+  right: 0; bottom: 0;
+  width: 0; height: 0;
+  border-left: 14px solid transparent;
+  border-bottom: 14px solid var(--line-1);
+  border-bottom-right-radius: var(--r-md);
+}
+
+/* 选中（传牌 / 亮牌） */
+.card.picked { border-color: var(--mode); box-shadow: 0 0 0 3px var(--mode-soft); transform: translateY(-10px); }
+
+/* 手牌区的选中：**不上移**，改成描边 + 右上角挑勾。
+ * 手牌是排好的一行/几行，上移会与上一排贴住、还会晃到整排；
+ * 挑勾与传牌 / 亮牌弹窗里的选中语义统一（那边也刻意不用位移），状态一眼可见。 */
+.hand-cards .card.picked {
+  transform: none;
+  border-color: var(--mode);
+  box-shadow: 0 0 0 2px var(--mode);
+}
+.hand-cards .card.picked::after {
+  content: '';
+  position: absolute;
+  top: 5px; right: 5px;
+  width: 19px; height: 19px;
+  border-radius: 50%;
+  background-color: var(--mode);
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='white' stroke-width='3.6' stroke-linecap='round' stroke-linejoin='round'><path d='M20 6L9 17l-5-5'/></svg>");
+  background-repeat: no-repeat;
+  background-position: center;
+  background-size: 12px 12px;
+  box-shadow: 0 1px 4px rgba(20, 24, 31, .3);
+}
+
+/* 已亮牌：保留花色颜色，并提供清晰的「亮」角标 */
+.card.is-sold { border-color: var(--gold); box-shadow: 0 0 0 2px var(--gold-soft); }
+.hand-cards .card.is-sold::before {
+  content: "亮";
+  position: absolute;
+  top: 5px;
+  right: 5px;
+  z-index: 2;
+  padding: 2px 4px;
+  border-radius: var(--r-pill);
+  background: var(--gold);
+  color: #fff;
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 1;
+  box-shadow: 0 1px 2px rgba(20, 24, 31, .16);
+}
+
+/* 首引标记 */
+.card.is-lead { border-color: var(--jade); }
+.lead-tag {
+  position: absolute;
+  top: -9px; left: 50%;
+  transform: translateX(-50%);
+  padding: 1px 6px;
+  border-radius: var(--r-pill);
+  background: var(--jade);
+  color: #fff;
+  font-size: 10px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+/* 进场 */
+@keyframes cardEnter {
+  from { opacity: 0; transform: translateY(14px) scale(.94); }
+  to   { opacity: 1; transform: none; }
+}
+.card-enter { animation: cardEnter .22s ease-out; }
+
+/* ---------- 已获得的牌 ---------- */
+.won-row { display: none; }
+.seat .won-row { margin-top: 4px; }
+.slot .won-card { }
+
+/* app.js 会把 won-row 显示出来（hidden 由 JS 控制） */
+.won-row:not([hidden]) { display: flex; flex-direction: column; gap: 6px; width: 100%; }
+.won-label { font-size: 11px; color: var(--text-3); }
+.won-label-short { display: none; }
+.won-cards { display: flex; flex-wrap: wrap; gap: 4px; }
+.seat-side .won-cards { justify-content: center; }
+
+.won-card {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 2px 5px;
+  border-radius: 5px;
+  background: var(--inset);
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1.4;
+  color: var(--text-1);
+}
+.won-card.red { color: var(--hearts); }
+.won-card.black { color: var(--text-1); }
+.won-card.has-points { background: var(--inset); box-shadow: inset 0 0 0 1.5px var(--line-3); }
+.won-card.is-sold-card { box-shadow: inset 0 0 0 1.5px var(--gold); }
+.won-rank { font-weight: 700; }
+.won-suit { font-size: 10px; }
+
+/* ============================================================
+ * 6. 面板层（桌面：右侧抽屉；移动：全屏）
+ * ============================================================ */
+.scrim {
+  position: fixed;
+  inset: 0;
+  background: rgba(20, 24, 31, .32);
+  z-index: 40;
+  animation: fadeIn .16s ease-out;
+}
+@keyframes fadeIn { from { opacity: 0 } to { opacity: 1 } }
+
+.panel {
+  position: fixed;
+  top: 0; right: 0; bottom: 0;
+  z-index: 50;
+  display: flex;
+  flex-direction: column;
+  width: 420px;
+  max-width: 100vw;
+  background: var(--surface);
+  box-shadow: -18px 0 48px rgba(20, 24, 31, .16);
+  animation: slideIn .2s ease-out;
+}
+@keyframes slideIn { from { transform: translateX(24px); opacity: .6 } to { transform: none; opacity: 1 } }
+
+.panel-head {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  height: 64px;
+  padding: 0 24px;
+  border-bottom: 1px solid var(--line-2);
+}
+.panel-head b { font-size: 17px; font-weight: 700; }
+
+.panel-tabs {
+  flex: none;
+  display: flex;
+  gap: 4px;
+  margin: 16px 24px 0;
+  padding: 4px;
+  background: var(--inset);
+  border-radius: var(--r-md);
+}
+.panel-tabs .pt {
+  flex: 1 1 0;
+  height: 34px;
+  border-radius: var(--r-sm);
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-2);
+}
+.panel-tabs .pt.is-on { background: var(--surface); color: var(--text-1); font-weight: 600; box-shadow: var(--sh-card); }
+
+.panel-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 22px;
+  padding: 20px 24px 28px;
+}
+.panel-tabs + .panel-body { padding-top: 16px; }
+
+/* ---------- 计分表 ---------- */
+.score-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.score-table th {
+  padding: 6px 0 8px;
+  font-size: 11px;
+  font-weight: 400;
+  color: var(--text-3);
+  text-align: left;
+  border-bottom: 1px solid var(--line-2);
+}
+.score-table th.num { text-align: right; }
+.score-table td { padding: 12px 0; border-bottom: 1px solid var(--line-2); vertical-align: middle; }
+.score-table tr:last-child td { border-bottom: none; }
+.score-table tbody tr.me td { font-weight: 600; }
+.score-table tbody tr.me td:first-child { color: var(--mode); }
+.score-num { text-align: right; font-variant-numeric: tabular-nums; font-weight: 600; }
+.score-cell { display: flex; flex-direction: column; align-items: flex-end; gap: 5px; }
+.score-bar { width: 100%; height: 4px; border-radius: 2px; background: var(--inset); overflow: hidden; }
+.score-bar > span { display: block; height: 100%; background: var(--mode); border-radius: 2px; }
+/* ⚠️ 拱猪出局进度条：绿=正分/安全，欠分进度绝不能用绿 */
+.score-bar.is-gz > span { background: #8C97A8; }
+.score-bar.is-warn > span { background: var(--warn); }
+.score-bar.is-danger > span { background: var(--danger); }
+
+/* ---------- 信息列表 ---------- */
+.info-list { padding: 6px 20px; }
+.info-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 12px 0;
+  border-top: 1px solid var(--line-2);
+  font-size: 13px;
+}
+.info-row:first-child { border-top: none; }
+.info-row .k { color: var(--text-3); flex: none; }
+.info-row .v { color: var(--text-1); font-weight: 500; text-align: right; }
+
+/* ---------- 记录 ---------- */
+.log-list {
+  display: flex;
+  flex-direction: column;
+  max-height: 320px;
+  overflow-y: auto;
+  padding: 4px 20px;
+  background: var(--surface);
+  border: 1px solid var(--line-1);
+  border-radius: var(--r-lg);
+}
+.log-list li {
+  padding: 9px 0;
+  border-top: 1px solid var(--line-2);
+  font-size: 12px;
+  color: var(--text-2);
+}
+.log-list li:first-child { border-top: none; }
+.log-list li.hot { color: var(--text-1); font-weight: 600; }
+
+/* ---------- 规则内容 ---------- */
+.rules { display: flex; flex-direction: column; gap: 10px; }
+.rule-sec {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  padding: 15px 16px;
+  background: var(--inset-2);
+  border-radius: var(--r-md);
+}
+.rule-sec b { font-size: 13px; font-weight: 600; }
+.rule-sec p { font-size: 12px; color: var(--text-2); line-height: 1.7; }
+.rule-sec p b { color: var(--text-1); }
+
+.score-list { display: flex; flex-direction: column; }
+.score-item {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 11px 0;
+  border-top: 1px solid var(--line-2);
+  font-size: 12px;
+}
+.score-item:first-child { border-top: none; }
+.score-item span { color: var(--text-2); }
+.score-item em { font-style: normal; font-weight: 600; color: var(--text-1); text-align: right; }
+.score-item em.hearts { color: var(--hearts); }
+.score-item em.pos { color: var(--jade); }
+
+.kbd-list { display: flex; flex-direction: column; gap: 8px; }
+.kbd-list > div { display: flex; align-items: center; gap: 10px; font-size: 12px; color: var(--text-2); }
+kbd {
+  display: inline-block;
+  min-width: 26px;
+  padding: 2px 7px;
+  text-align: center;
+  font-family: inherit;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-1);
+  background: var(--surface);
+  border: 1px solid var(--line-1);
+  border-bottom-width: 2px;
+  border-radius: var(--r-xs);
+}
+
+/* ============================================================
+ * 7. 移动端底部胶囊导航
+ * ============================================================ */
+.tabbar { display: none; }
+
+/* ============================================================
+ * 8. 弹窗
+ * ============================================================ */
+.overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: rgba(20, 24, 31, .32);
+  animation: fadeIn .16s ease-out;
+  overflow-y: auto;
+}
+
+.modal {
+  width: 100%;
+  max-width: 620px;
+  max-height: 92vh;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 28px 32px;
+  background: var(--surface);
+  border-radius: var(--r-xl);
+  box-shadow: var(--sh-modal);
+  animation: popIn .18s ease-out;
+}
+.modal-wide { max-width: 860px; }
+@keyframes popIn { from { transform: translateY(10px) scale(.98); opacity: .6 } to { transform: none; opacity: 1 } }
+
+.modal-head { display: flex; flex-direction: column; gap: 6px; }
+.modal-head h2 { font-size: 22px; font-weight: 700; letter-spacing: -0.3px; }
+.modal .lead { font-size: 13px; color: var(--text-2); line-height: 1.7; }
+.modal .lead b { color: var(--text-1); }
+.modal .lead .pass-target { color: var(--mode); }
+
+.modal-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 14px;
+  background: var(--inset);
+  border-radius: var(--r-sm);
+  font-size: 12px;
+}
+.modal-bar-label { font-weight: 600; }
+
+.modal-actions { display: flex; justify-content: flex-end; gap: 10px; }
+.modal-actions .btn-primary { min-width: 132px; }
+
+/* 亮牌 / 传牌的可点选牌堆。
+ * justify-content: center 是必需的：13 张手牌按行折行后，末行常常只剩 1~3 张，
+ * 左对齐会让它们孤零零贴在左边、右侧留一大片空，看起来「牌都挤在一侧」。 */
+.pass-grid, .sell-grid {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: var(--pick-gap);
+  padding: 4px 0;
+}
+.pass-grid .card, .sell-grid .card {
+  width: var(--pick-w);
+  height: var(--pick-h);
+  cursor: pointer;
+}
+/* 亮牌弹窗里「不能亮的牌」只作参照（看手牌用），灰显且不可点。
+   注意 .hand-cards .card.blocked 那套样式作用域在手牌区，这里要单独给一份。 */
+.sell-grid .card.blocked {
+  opacity: .42;
+  filter: saturate(.3);
+  cursor: default;
+}
+.sell-grid .card.blocked:hover { transform: none; border-color: var(--line-1); }
+
+/* 可亮的牌描一圈金色（与「已亮牌」同一套金色语义），
+   让「能点哪几张」一眼看出来，不必靠对比亮度去猜。 */
+.sell-grid .card.playable {
+  border-color: var(--gold);
+  box-shadow: 0 0 0 2px var(--gold-soft);
+}
+
+/* 弹窗里选中「挑勾」而不是向上弹起。
+   原来用 transform: translateY(-10px) 表示选中 —— 在牌桌手牌上「抬起」是自然的
+   （牌要打出去），但在弹窗里只是勾选，牌往上飘会让整排牌跟着晃，
+   而且抬起后会和上一排贴在一起、也盖住牌面。改成右上角一枚圆勾，状态更明确。 */
+.pass-grid .card.picked,
+.sell-grid .card.picked {
+  transform: none;
+}
+.pass-grid .card.picked::after,
+.sell-grid .card.picked::after {
+  content: '';
+  position: absolute;
+  top: 5px; right: 5px;
+  width: 19px; height: 19px;
+  border-radius: 50%;
+  background-color: var(--mode);
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='white' stroke-width='3.6' stroke-linecap='round' stroke-linejoin='round'><path d='M20 6L9 17l-5-5'/></svg>");
+  background-repeat: no-repeat;
+  background-position: center;
+  background-size: 12px 12px;
+  box-shadow: 0 1px 4px rgba(20, 24, 31, .3);
+}
+
+.pass-tip {
+  font-size: 12px;
+  color: var(--text-2);
+  background: var(--inset);
+  border-radius: var(--r-sm);
+  padding: 10px 14px;
+  line-height: 1.6;
+}
+.pass-tip.ok { color: var(--jade); background: var(--jade-soft); }
+.empty-note { font-size: 13px; color: var(--text-3); padding: 12px 0; }
+
+/* ---------- 结算 ---------- */
+.result-hero { display: flex; flex-direction: column; gap: 8px; align-items: flex-start; }
+.result-badge {
+  display: inline-block;
+  padding: 4px 10px;
+  border-radius: var(--r-xs);
+  background: var(--jade-soft);
+  color: var(--jade);
+  font-size: 11px;
+  font-weight: 600;
+}
+.result-title { font-size: 22px; font-weight: 700; }
+.result-sub { font-size: 13px; color: var(--text-2); line-height: 1.65; }
+
+.settle-table .settle-cards { font-size: 12px; }
+.settle-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin: 2px 4px 2px 0;
+  padding: 3px 7px;
+  border-radius: var(--r-xs);
+  background: var(--inset);
+  white-space: nowrap;
+}
+.settle-item em { font-style: normal; font-weight: 700; color: var(--hearts); }
+.settle-item.pos em { color: var(--jade); }
+/* 0 分牌（变压器 / 2~4 红桃）：不用红绿强调，压成次要信息 */
+.settle-item.zero em { color: var(--text-3); font-weight: 600; }
+.settle-none { color: var(--text-3); font-size: 12px; }
+.settle-notes { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+.moon-mark, .tf-mark, .sell-mark {
+  font-size: 11px;
+  font-weight: 600;
+  padding: 2px 7px;
+  border-radius: var(--r-xs);
+}
+.moon-mark { color: var(--jade); background: var(--jade-soft); }
+.tf-mark { color: var(--gold); background: var(--gold-soft); }
+.sell-mark { color: var(--gold); background: var(--gold-soft); }
+.settle-foot { font-size: 12px; color: var(--text-3); text-align: right; }
+
+/* ============================================================
+ * 9. 响应式 —— 移动端（< 900px）
+ * ============================================================ */
+@media (max-width: 900px) {
+  :root {
+    --topbar-h: 56px;
+    --card-w: 48px;
+    --card-h: 68px;
+    /* 桌面上的出牌位比手牌还大（70×98 vs 52×74）是为了远距离看得清；
+       窄屏没有这个必要，反而把中央那块撑成一大片空白。压到比手牌略大即可。 */
+    --trick-w: 54px;
+    --trick-h: 76px;
+    --seat-side-w: 62px;
+    /* 弹窗里的牌不跟着瘦身：比手牌（48×68）大一号，一行仍能放下 5 张 */
+    --pick-w: 60px;
+    --pick-h: 84px;
+    --pick-gap: 10px;
+  }
+
+  .only-mobile { display: block !important; }
+  .only-desktop { display: none !important; }
+
+  .topbar { padding: 0 16px; gap: 10px; }
+  .topbar-left { flex: 1 1 auto; gap: 10px; min-width: 0; }
+  .topbar-right { gap: 8px; }
+  .brand-text b { font-size: 16px; }
+  .brand-text i { display: none; }
+  .btn { height: 34px; padding: 0 12px; font-size: 12px; }
+  .icon-btn { width: 34px; height: 34px; }
+  .icon-btn svg { width: 20px; height: 20px; }
+  .btn-lg { height: 52px; padding: 0 20px; font-size: 15px; }
+
+  /* 顶栏在窄屏要腾地方：退出收掉，对局信息只留图标 */
+  #btnExitGame { display: none; }
+  #btnInfoPanel { width: 34px; padding: 0; gap: 0; }
+  .mode-chip { height: 30px; padding: 0 11px; font-size: 12px; }
+  .round-text { font-size: 12px; }
+
+  /* 主页：单列 + 底部导航留位 */
+  .home {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 20px;
+    padding: 16px 20px 116px;
+    max-width: none;
+  }
+  .home-side { display: none; }          /* 战绩在移动端走底部导航的独立面板 */
+  .home-main { gap: 20px; }
+  .home-hero { gap: 4px; }
+  .home-hero h1 { font-size: 20px; }
+  .home-hero p { font-size: 13px; }
+  .eyebrow { font-size: 11px; letter-spacing: 1.2px; }
+
+  .mode-cards { grid-template-columns: minmax(0, 1fr); gap: 10px; }
+  /* 移动端把模式卡压成两行：[标记][名称 ……][选中] / [说明] */
+  .mode-card { flex-direction: row; flex-wrap: wrap; align-items: center; gap: 4px 12px; padding: 14px 16px; }
+  .mode-top { display: contents; }
+  .mode-mark { order: 1; width: 36px; height: 36px; border-radius: 11px; }
+  .mode-mark svg { width: 24px; height: 24px; }
+  .mode-name { order: 2; flex: 1 1 auto; font-size: 15px; }
+  .radio { order: 3; }
+  .mode-desc { order: 4; flex-basis: 100%; font-size: 12px; }
+  .mode-tags { display: none; }
+
+  .cta-row { flex-direction: column; }
+  .cta-row .btn { width: 100%; }
+  #btnContinue { order: 2; }
+
+  .seg button { height: 36px; font-size: 12px; }
+
+  /* 底部胶囊导航 */
+  .tabbar {
+    display: block;
+    position: fixed;
+    left: 0; right: 0; bottom: 0;
+    z-index: 30;
+    padding: 8px 21px calc(12px + env(safe-area-inset-bottom, 0px));
+    background: linear-gradient(to top, var(--bg-page) 62%, rgba(244, 246, 248, 0));
+  }
+  .tabbar-pill {
+    display: flex;
+    gap: 0;
+    height: 62px;
+    padding: 4px;
+    background: var(--surface);
+    border: 1px solid var(--line-1);
+    border-radius: var(--r-pill);
+    box-shadow: var(--sh-pop);
+  }
+  .tabbar .tab {
+    flex: 1 1 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 4px;
+    border-radius: 26px;
+    color: var(--text-3);
+    transition: background .16s, color .16s;
+  }
+  .tabbar .tab svg { width: 18px; height: 18px; }
+  .tabbar .tab i { font-style: normal; font-size: 10px; font-weight: 500; letter-spacing: .5px; }
+  .tabbar .tab.is-on { background: var(--text-1); color: #fff; }
+  .tabbar .tab.is-on i { font-weight: 600; }
+
+  /* 游戏页
+   *
+   * 窄屏的账本很紧：牌桌高度 = 100dvh − 顶栏，且 .table 是 overflow:hidden，
+   * 一旦各「自动高度」的行加起来超了，手牌区会被直接裁掉。所以这里的目标是
+   * **把每个盒子都压扁**，而不是单纯缩小字体：
+   *   · 空出牌位不再画 70×98 的大虚线框（四个框是整屏最重的一块视觉）
+   *   · 亮牌条 / 提示条 / 我的分 去掉底板与描边，只留文字，三层盒子变三行文字
+   *   · 座位卡与手牌统一收一号
+   */
+  .table-wrap { padding: 8px; }
+  .table {
+    grid-template-areas:
+      "sold  sold  sold"
+      "north north north"
+      "west  center east"
+      "hint  hint  hint"
+      "myscore myscore myscore"
+      "hand  hand  hand";
+    grid-template-columns: var(--seat-side-w) minmax(0, 1fr) var(--seat-side-w);
+    grid-template-rows: auto auto minmax(0, 1fr) auto auto auto;
+    gap: 6px;
+    padding: 10px;
+    border-radius: var(--r-lg);
+  }
+
+  /* 亮牌条：压成一条淡底细带，不再是抢眼的色块 */
+  .sold-board { padding: 4px 10px; gap: 8px; border-radius: var(--r-xs); }
+  .sold-board-title { font-size: 10px; }
+  .sold-chip { padding: 2px 7px; font-size: 10px; gap: 4px; }
+
+  /* 我的分 / 提示条：去掉盒子，只留一行字 —— 三层盒子并成两行文字 */
+  .myscore {
+    padding: 0;
+    gap: 2px 10px;
+    background: none;
+    border: none;
+    box-shadow: none;
+    font-size: 11px;
+    justify-content: center;
+  }
+  .myscore-total { font-size: 14px; }
+  .myscore-detail { font-size: 10px; gap: 2px 6px; }
+  .myscore-detail .ms-chip { padding: 0 5px; }
+  .hintbar {
+    padding: 2px 12px;
+    font-size: 12px;
+    background: none;
+    font-weight: 600;
+    color: var(--text-2);
+  }
+
+  .seat-north-card {
+    gap: 8px;
+    padding: 6px 12px;
+    min-height: 44px;
+    max-width: none;
+    border-radius: 13px;
+  }
+  .avatar { width: 30px; height: 30px; }
+  .avatar svg { width: 19px; height: 19px; }
+  .avatar-md, .avatar-sm { width: 32px; height: 32px; }
+  .avatar-md svg, .avatar-sm svg { width: 20px; height: 20px; }
+  .seat-name { font-size: 13px; }
+  .seat-side .seat-name { font-size: 12px; }
+  .seat-tag { font-size: 11px; }
+  .seat-side .seat-tag { font-size: 10px; }
+  .seat-meta { font-size: 11px; gap: 4px; }
+  /* 北家在窄屏：名字 / 关键牌 在左，剩牌数靠右 */
+  .seat-north-card { align-items: center; }
+  .seat-north-card .won-row-mid { gap: 2px; max-width: 32%; }
+  .seat-north-card .seat-meta { font-size: 10px; gap: 4px; flex-wrap: nowrap; }
+  .seat-north-card .won-label-full { display: none; }
+  .seat-north-card .won-label-short { display: inline; }
+  .seat-north-card .won-label { font-size: 10px; white-space: nowrap; }
+  .seat-north-card .won-card { padding: 1px 5px; font-size: 10px; }
+  /* 侧座位只有 62px 宽，但必须保留底色/描边——否则两个人飘在空中看不出是「座位」 */
+  .seat-side {
+    gap: 3px;
+    padding: 6px 3px;
+    background: var(--surface);
+    border: 1px solid var(--line-1);
+    border-radius: 13px;
+  }
+  /* 62px 宽塞不下「已收关键牌 N 张」——换短版 */
+  .seat-side .won-label-full { display: none; }
+  .seat-side .won-label-short { display: inline; }
+  .seat-side .won-cards { gap: 3px; justify-content: center; }
+  .seat-side .won-card { padding: 1px 4px; font-size: 10px; }
+
+  /* 出牌区：窄屏改 2×2 —— 横排三张 54px 的牌会溢出底板 */
+  .trick-area {
+    grid-template-areas: "nw n" "ne s";
+    grid-template-columns: repeat(2, auto);
+    gap: 4px 12px;
+    height: auto;
+    max-width: 156px;
+    max-height: none;
+    padding: 8px;
+    border-radius: var(--r-md);
+  }
+  .slot-label { font-size: 10px; }
+  /* 空位只留一个小小的虚线方块：位置关系看得见，但不再撑出一大片空白。
+     用 ::after 而不是改 .slot 的尺寸 —— 牌落下时不会发生布局跳动。 */
+  .slot:empty { background: none; border: none; box-shadow: none; }
+  .slot:empty::after {
+    content: '';
+    width: 24px;
+    height: 24px;
+    border-radius: 7px;
+    border: 1px dashed var(--line-2);
+  }
+
+  .hand-area { gap: 6px; }
+  .hand-head { gap: 8px; }
+  .hand-title { font-size: 12px; color: var(--text-2); }
+  /* 手牌分两排**全部展示**（13 张 → 7 + 6），不再横向滚动。
+   * 原来是一行 nowrap + overflow-x:auto —— 一局 13 张要滑着看，
+   * 且亮牌弹窗一盖就连滑都滑不了。
+   * 牌宽按容器自适应：容器宽减去 6 个间隙再 7 等分，这样 360~430 的屏
+   * 都能刚好排下两排，不必为最小屏再降一档（降档会让牌小到看不清角标）。 */
+  .hand-cards {
+    gap: 6px;
+    flex-wrap: wrap;
+    overflow-x: visible;
+    justify-content: center;
+    width: 100%;
+  }
+  .hand-cards .card {
+    width: calc((100% - 36px) / 7);
+    height: auto;
+    aspect-ratio: 84 / 116;
+  }
+  .hand-area .card-rank { font-size: 12px; }
+  .hand-area .card-corner.tl { top: 4px; left: 4px; }
+  .hand-area .card-corner.br { bottom: 4px; right: 4px; }
+  .hand-area .card-suit-sm { width: 8px; height: 8px; }
+  .hand-area .card-suit-big { width: 46%; height: 46%; }
+
+  /* 侧座位只有 62px 宽：「剩 N 张 / 已收 M 分」拆成上下两行 */
+  .seat-side .seat-meta { flex-direction: column; align-items: center; gap: 0; font-size: 10px; line-height: 1.4; }
+  .seat-side .seat-meta i::before { content: ""; }
+  /* 侧座位已收牌：只留角标数字，标签收成一行省略号避免竖排 */
+  .seat-side .won-row { gap: 4px; margin-top: 2px; align-items: center; }
+  .seat-side .won-label {
+    font-size: 9px;
+    line-height: 1.25;
+    white-space: nowrap;
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    letter-spacing: -.2px;
+  }
+
+  /* 面板 → 全屏 */
+  .panel {
+    top: auto;
+    left: 0; right: 0; bottom: 0;
+    width: auto;
+    max-height: 92vh;
+    border-radius: var(--r-xl) var(--r-xl) 0 0;
+    animation: sheetUp .22s ease-out;
+  }
+  @keyframes sheetUp { from { transform: translateY(28px); opacity: .7 } to { transform: none; opacity: 1 } }
+  .panel-head { height: 58px; padding: 0 20px; }
+  .panel-tabs { margin: 14px 20px 0; }
+  .panel-body { padding: 16px 20px calc(24px + env(safe-area-inset-bottom, 0px)); gap: 18px; }
+
+  /* 弹窗 → 底部抽屉 */
+  .overlay { align-items: flex-end; padding: 0; }
+  .modal {
+    max-width: none;
+    max-height: 92vh;
+    border-radius: var(--r-xl) var(--r-xl) 0 0;
+    padding: 22px 20px calc(22px + env(safe-area-inset-bottom, 0px));
+    animation: sheetUp .22s ease-out;
+  }
+  .modal-actions { flex-direction: column-reverse; }
+  .modal-actions .btn { width: 100%; }
+}
+
+/* ---------- 小屏微调 ---------- */
+@media (max-width: 560px) {
+  /* 更窄的屏（360 及以下）再收一号，保证一行仍能放下 5 张 ——
+     收的是牌本身，不是间距：间距太小会重新变回「挤」。 */
+  :root {
+    --pick-w: 56px;
+    --pick-h: 80px;
+    --pick-gap: 9px;
+  }
+  .result-title { font-size: 20px; }
+  .modal-head h2 { font-size: 19px; }
+}
+
+/* ============================================================
+ * 11. 联机对局（主页入口 + 大厅）
+ * ============================================================ */
+
+/* ---------- 主页「联机对战」卡 ---------- */
+.online-card { display: flex; flex-direction: column; gap: 12px; }
+.online-status {
+  font-size: 11px;
+  font-weight: 600;
+  padding: 3px 9px;
+  border-radius: var(--r-pill);
+  background: var(--inset);
+  color: var(--text-3);
+  white-space: nowrap;
+}
+.online-status.is-ready { background: var(--jade-soft); color: var(--jade); }
+.online-status.is-bad { background: var(--mode-soft); color: var(--mode); }
+.online-desc { font-size: 12.5px; color: var(--text-3); line-height: 1.6; }
+.online-actions { display: flex; gap: 10px; }
+.online-actions .btn { flex: 1 1 0; }
+
+.online-join {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+.room-input {
+  flex: 1 1 auto;
+  min-width: 0;
+  height: 42px;
+  padding: 0 14px;
+  border: 1px solid var(--line-1);
+  border-radius: var(--r-md);
+  background: var(--inset);
+  font-size: 17px;
+  font-weight: 700;
+  letter-spacing: 3px;
+  text-align: center;
+  text-transform: uppercase;
+  color: var(--text-1);
+}
+.room-input:focus { outline: none; border-color: var(--mode); background: var(--surface); }
+.online-error {
+  font-size: 12px;
+  color: var(--hearts);
+  line-height: 1.55;
+  padding: 8px 11px;
+  border-radius: var(--r-sm);
+  background: rgba(214, 69, 69, .08);
+}
+
+/* 联机服务配置面板 */
+.net-setup {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px;
+  border: 1px dashed var(--line-1);
+  border-radius: var(--r-md);
+  background: var(--inset);
+}
+.net-setup-note { font-size: 11.5px; color: var(--text-3); line-height: 1.65; }
+.net-setup-note a { color: var(--mode); text-decoration: underline; }
+.net-setup .net-input {
+  font-size: 12.5px;
+  font-weight: 500;
+  letter-spacing: 0;
+  text-align: left;
+  text-transform: none;
+  height: 38px;
+}
+.net-setup-actions { display: flex; gap: 8px; }
+.net-setup-actions .btn { flex: 1 1 0; }
+
+/* ---------- 联机大厅 ---------- */
+.lobby {
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 22px 28px;
+  max-width: 620px;
+  width: 100%;
+  margin: 0 auto;
+  overflow-y: auto;
+  min-height: 0;
+}
+
+.lobby-code-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 22px;
+  background: linear-gradient(180deg, var(--mode-soft), var(--surface));
+  border-color: transparent;
+}
+.lobby-code-label { font-size: 12px; color: var(--text-3); letter-spacing: 1px; }
+.lobby-code {
+  font-size: 38px;
+  font-weight: 800;
+  letter-spacing: 8px;
+  color: var(--mode);
+  font-variant-numeric: tabular-nums;
+  text-indent: 8px;
+}
+.lobby-code-hint { font-size: 12px; color: var(--text-3); text-align: center; }
+
+.lobby-seats { display: flex; flex-direction: column; gap: 8px; }
+.lobby-seat {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  padding: 11px 13px;
+  border-radius: var(--r-md);
+  background: var(--inset);
+  border: 1px solid transparent;
+}
+.lobby-seat.is-me { border-color: var(--mode); background: var(--mode-soft); }
+.lobby-seat.is-empty { background: transparent; border: 1px dashed var(--line-2); }
+.lobby-seat.is-ai { background: var(--inset-2, var(--inset)); }
+.lobby-seat-avatar {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 34px; height: 34px;
+  border-radius: 50%;
+  background: var(--surface);
+  color: var(--text-3);
+}
+.lobby-seat-avatar svg { width: 20px; height: 20px; }
+.lobby-seat-name { flex: 1 1 auto; font-size: 14px; font-weight: 600; min-width: 0;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lobby-seat-tag {
+  flex: none;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 3px 9px;
+  border-radius: var(--r-pill);
+  background: var(--surface);
+  color: var(--text-3);
+}
+.lobby-seat-tag.is-host { background: var(--gold-soft); color: var(--gold); }
+.lobby-seat-tag.is-ai { background: var(--inset); color: var(--text-3); }
+
+.lobby-settings { display: flex; flex-direction: column; gap: 10px; }
+.lobby-set-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 13px;
+  color: var(--text-2);
+}
+.lobby-set-row select {
+  height: 34px;
+  padding: 0 10px;
+  border: 1px solid var(--line-1);
+  border-radius: var(--r-sm);
+  background: var(--surface);
+  font-size: 13px;
+  color: var(--text-1);
+}
+
+.lobby-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: auto;
+  padding-top: 6px;
+}
+.lobby-actions .btn-ghost { flex: none; }
+.lobby-actions .btn-primary { flex: 1 1 auto; }
+.lobby-note { font-size: 12px; color: var(--text-3); text-align: center; line-height: 1.55; }
+
+/* 联机中的座位角标：标出「你」与「AI」 */
+.seat.is-online-me .seat-name::after {
+  content: "（你）";
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--mode);
+}
+
+@media (max-width: 900px) {
+  .lobby { padding: 16px 20px 24px; gap: 14px; }
+  .lobby-code { font-size: 32px; letter-spacing: 6px; }
+  .online-actions { flex-direction: column; }
+  .online-join { flex-wrap: wrap; }
+  .room-input { flex-basis: 100%; }
+  .net-setup .net-input { flex-basis: auto; font-size: 12px; letter-spacing: 0; }
+}
+
+/* ============================================================
+ * 扫码邀请 / 扫码加入
+ * ============================================================ */
+
+/* --- 大厅里的「扫码邀请」按钮与已加入提示 --- */
+.lobby-invite-btn { margin-top: 6px; }
+
+.invited-note {
+  margin: 0;
+  font-size: 12.5px;
+  line-height: 1.7;
+  color: var(--text-2);
+}
+.invited-note b {
+  color: var(--mode);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 1px;
+}
+
+/* --- 邀请弹窗 --- */
+.modal-invite { max-width: 380px; }
+
+/* 手机上这个弹窗是底部抽屉，内容一多就会顶到屏幕外。
+   二维码是核心，必须优先保证它在首屏可见：
+   抽屉本身可滚动，同时把二维码区做成 flex 里的第一个不压缩项。 */
+@media (max-width: 900px) {
+  .modal-invite { max-height: 88vh; overflow-y: auto; }
+  .modal-invite .invite-qr-wrap { flex: 0 0 auto; padding: 12px; }
+  .modal-invite .invite-warn { font-size: 11px; line-height: 1.6; }
+}
+
+.invite-sub {
+  margin: 2px 0 14px;
+  font-size: 12.5px;
+  color: var(--text-3);
+  line-height: 1.6;
+}
+
+.invite-qr-wrap {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  padding: 16px;
+  border-radius: var(--r-md);
+  background: #fff;
+  border: 1px solid var(--line-2);
+}
+.invite-qr {
+  display: block;
+  /* ⚠️ 不要写死 width/height：canvas 的位图尺寸由 qr.js 按 scale 算出，
+     而这里锁死一个固定值会让两者不一致 —— 浏览器把位图缩放显示，
+     在小屏 / 高 DPI 上二维码会被插值糊成一片，扫不出来（看起来像"没渲染"）。
+     改为跟随自身位图宽高比、限制最大边长，由 JS 决定清晰度。 */
+  width: auto;
+  height: auto;
+  max-width: 100%;
+  max-height: 232px;
+  image-rendering: pixelated;   /* 二维码必须锐利，不能被插值糊掉 */
+}
+.invite-code-line { margin: 0; font-size: 13px; color: var(--text-2); }
+.invite-code-line b {
+  color: var(--mode);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 2px;
+}
+
+.invite-link-label {
+  display: block;
+  margin: 14px 0 6px;
+  font-size: 12px;
+  color: var(--text-3);
+}
+.invite-link-row { display: flex; gap: 8px; }
+.invite-link-row .room-input {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-size: 12px;
+  letter-spacing: 0;
+  text-overflow: ellipsis;
+}
+
+.invite-warn {
+  margin: 12px 0 0;
+  font-size: 11.5px;
+  line-height: 1.7;
+  color: var(--gold);
+  background: color-mix(in srgb, var(--gold) 8%, transparent);
+  border-radius: var(--r-sm, 8px);
+  padding: 9px 11px;
+}
+
+/* 被邀请者看到的「由房主设定」占位（真正遮住房主的选择） */
+.lobby-set-masked {
+  font-size: 12.5px;
+  font-style: normal;
+  color: var(--text-3);
+  background: var(--inset);
+  padding: 4px 10px;
+  border-radius: 999px;
+}
+
+/* --- 扫码加入确认页 --- */
+.joinc {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 100dvh;
+  padding: 24px;
+}
+.joinc-card {
+  width: 100%;
+  max-width: 400px;
+  padding: 26px 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.joinc-badge {
+  align-self: flex-start;
+  font-size: 11.5px;
+  font-weight: 700;
+  letter-spacing: .5px;
+  color: var(--mode);
+  background: var(--mode-soft);
+  padding: 3px 9px;
+  border-radius: 999px;
+  margin-bottom: 8px;
+}
+.joinc-title {
+  margin: 0 0 6px;
+  font-size: 19px;
+  font-weight: 700;
+  color: var(--text-1);
+}
+.joinc-title b {
+  color: var(--mode);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 2px;
+}
+.joinc-sub {
+  margin: 0 0 16px;
+  font-size: 13px;
+  color: var(--text-2);
+  line-height: 1.65;
+}
+.joinc-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 11px 13px;
+  border-radius: var(--r-md);
+  background: var(--inset);
+}
+.joinc-row > span { font-size: 13px; color: var(--text-2); }
+.joinc-name {
+  flex: 0 1 60%;
+  text-align: right;
+  background: transparent;
+  border: none;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-1);
+}
+.joinc-note {
+  margin: 14px 0 18px;
+  font-size: 11.5px;
+  line-height: 1.75;
+  color: var(--text-3);
+}
+.joinc-actions { display: flex; gap: 10px; }
+.joinc-actions .btn { flex: 1 1 0; }
+
+@media (max-width: 900px) {
+  /* 手机上弹窗是「底部抽屉」，高度紧张。二维码改用固定方形容器 + 居中，
+     既保证不被压扁，也不会把下面的链接 / 说明挤出屏幕。 */
+  .invite-qr { max-height: 200px; }
+  .invite-link-row { flex-wrap: wrap; }
+  .invite-link-row .room-input { flex-basis: 100%; }
+}
+
+/* ---------- 收牌动画 ----------
+ *
+ * 设计约束（三条，改动时别破坏）：
+ *   1. **不参与布局、不拦截触控**：整层 position:fixed + pointer-events:none，
+ *      飞行中的牌都是绝对定位的克隆。手机上动画期间照样能点、能滑。
+ *   2. **只动 transform / opacity**：这两个属性走合成器，不触发重排重绘。
+ *      绝不在这里动 width/height/top/left —— 移动端会掉帧。
+ *   3. **可被随时打断**：新一墩开始或新动画启动时，直接清空整层，不留残留。
+ */
+.collect-layer {
+  position: fixed;
+  inset: 0;
+  z-index: 70;                 /* 高于牌桌，低于弹窗（.overlay 是 60，弹窗在其上） */
+  pointer-events: none;
+  overflow: hidden;
+  contain: strict;             /* 把重绘范围锁在这一层，避免影响整页 */
+}
+
+/* 飞行中的牌：由 JS 设定起止位置，只做 transform 过渡 */
+.collect-fly {
+  position: absolute;
+  top: 0;
+  left: 0;
+  transform-origin: center center;
+  will-change: transform, opacity;
+  backface-visibility: hidden;  /* iOS 上避免合成期闪烁 */
+  transition: transform var(--collect-ms, 620ms) cubic-bezier(.34, .8, .3, 1),
+              opacity var(--collect-ms, 620ms) ease-in;
+  pointer-events: none;
+}
+/* 起手微抬：先"拿起来"再飞走，让轨迹更容易被眼睛跟上 */
+.collect-fly.is-lifting {
+  transform: translate3d(var(--x), var(--y), 0) rotate(var(--r, 0deg)) scale(1.06);
+}
+
+/* 收牌方标识：跟在赢家旁边浮出 */
+.collect-badge {
+  position: absolute;
+  top: 0;
+  left: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 13px;
+  border-radius: 999px;
+  background: var(--surface);
+  box-shadow: 0 8px 22px rgba(20, 24, 31, .16), 0 0 0 1.5px var(--mode);
+  color: var(--text-1);
+  font-size: 13px;
+  font-weight: 700;
+  white-space: nowrap;
+  pointer-events: none;
+  opacity: 0;
+  transform: translate3d(var(--x), var(--y), 0) translate(-50%, -50%) scale(.86);
+  transition: opacity 200ms ease-out, transform 260ms cubic-bezier(.2, .9, .3, 1.2);
+}
+.collect-badge.is-in {
+  opacity: 1;
+  transform: translate3d(var(--x), var(--y), 0) translate(-50%, -50%) scale(1);
+}
+.collect-badge-who { color: var(--mode); }
+.collect-badge-pts {
+  font-variant-numeric: tabular-nums;
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: var(--inset);
+  color: var(--text-2);
+  font-size: 12px;
+}
+/* 加减分的颜色**只跟符号走**，与「本局我收下的分」里的明细 chip 用同一套约定：
+     加分 = 绿（--jade）  减分 = 红（--hearts）  无分 = 中性灰
+   刻意不按「对我方有利 / 不利」着色 —— 那套语义在两套玩法里是相反的
+   （拱猪 -100 的猪是坏事、红心 +13 的黑桃 Q 也是坏事），
+   同一个数字在两处显示成两种颜色反而更让人困惑。 */
+.collect-badge-pts.is-plus { color: var(--jade); }
+.collect-badge-pts.is-minus { color: var(--hearts); }
+.collect-badge-pts.is-zero { color: var(--text-3); }
+
+/* 赢家座位脉冲：明确"这些牌归谁" */
+.seat.is-collecting {
+  box-shadow: 0 0 0 2px var(--mode), 0 0 0 10px color-mix(in srgb, var(--mode) 14%, transparent);
+  border-radius: var(--r-md);
+  transition: box-shadow 220ms ease-out;
+}
+/* 赢家是本人（座位 0，没有独立座位卡）时，让手牌区整体亮一下 */
+.hand-area.is-collecting .hand-cards {
+  box-shadow: 0 0 0 2px var(--mode), 0 0 0 10px color-mix(in srgb, var(--mode) 12%, transparent);
+  border-radius: var(--r-md);
+  transition: box-shadow 220ms ease-out;
+}
+/* 正在被收走的桌面牌：淡出让位给飞行克隆，避免"牌还在原地又飞出去"的重影 */
+.slot.is-collecting .card {
+  opacity: .28;
+  transform: scale(.9);
+  transition: opacity 160ms ease-out, transform 160ms ease-out;
+}
+
+/* 降低动效偏好：直接不做飞行，只保留标识与高亮（信息仍然传达得到） */
+@media (prefers-reduced-motion: reduce) {
+  .collect-fly { transition-duration: 1ms !important; }
+  .collect-badge { transition-duration: 1ms !important; }
+}
+
+/* 小屏：轨迹更短、徽标更小，避免遮挡本就很紧的牌桌 */
+@media (max-width: 900px) {
+  .collect-badge { font-size: 12px; padding: 6px 11px; max-width: calc(100vw - 28px); }
+  .collect-badge-pts { font-size: 11px; }
+
+  /* 手机上提示条和收牌标识说的是同一句话，且两者紧挨着（就在手牌区上方）。
+     动画期间把提示条压暗，让徽标独占视线，避免两行重复文字挤成一团。
+     信息零损失：徽标上写的就是同样的「谁收下 / 得几分」。 */
+  .hintbar { transition: opacity 200ms ease-out; }
+  body.is-collect-flash .hintbar { opacity: .25; }
+}
+
+/* ---------- 降低动效 ---------- */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: .01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: .01ms !important;
+  }
+}
+
+/* ============================================================
+ * 12. 斗地主（三人局）
+ *
+ * 牌桌骨架沿用 UI v2 的 grid，但**必须重排**，否则整张桌子会被挤歪：
+ *
+ *   · 三人局只有「我 + 两个对手」，第 4 座根本不存在 → 藏掉东座
+ *   · 两个对手要落在**左右两侧**才对称。座位 2 的 DOM 是北座
+ *     （.seat-north / #slot2），用 grid-area 把它挪进东格即可，
+ *     不必动 HTML —— 出牌位 .pos-n 同理挪到 .pos-ne。
+ *   · 新增一行「出牌操作区」(#ddzActions)。它是 .table 的直接子项，
+ *     没有 grid-area 时会被自动排到行尾、且只占第 1 列（208px），
+ *     整张牌桌会被这一行带歪 —— 这正是「样式乱」的主因之一。
+ *   · 底牌区 (#ddzBottom) 占 sold 那一行（与拱猪亮牌条同位，两位玩法互斥）。
+ *     它**不能**留在 .center 里：桌面端 .trick-area 是 height:100%，
+ *     底牌会被顶出中央区、压在操作按钮上（实测过）。
+ * ============================================================ */
+
+/* 斗地主用金色作模式色：底牌 / 地主都带点「贵气」，
+   同时与红心（红）、拱猪（靛蓝）明确区分开。 */
+body[data-mode="ddz"] {
+  --mode: var(--gold);
+  --mode-soft: var(--gold-soft);
+}
+
+/* ---------- 主页模式卡 ---------- */
+/* 现在是三张卡：够宽就并排三张，不够宽自动折行（≤900px 由响应式收成一列）。 */
+@media (min-width: 901px) {
+  .mode-cards { grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); }
+}
+.mode-card[data-mode="ddz"] .mode-mark { color: var(--gold); background: var(--gold-soft); }
+.mode-card[data-mode="ddz"].is-on { border-color: var(--gold); }
+.mode-card[data-mode="ddz"].is-on .radio {
+  border-color: var(--gold);
+  background: var(--gold);
+  box-shadow: inset 0 0 0 4px #fff;
+}
+/* 模式图标里的「王」字：与其它卡的 SVG 图标同尺寸同重量 */
+.mode-mark.mark-ddz span {
+  font-size: 22px;
+  font-weight: 800;
+  line-height: 1;
+  letter-spacing: -0.5px;
+}
+
+/* ---------- 牌桌骨架 ---------- */
+/* 斗地主不需要「底牌行」与「本局我收下的分行」：
+ *   · 底牌改成点击查看（弹窗），牌桌上只留一枚入口胶囊
+ *   · 「本局我收下的分」整行移除 —— 分数看座位卡与计分面板就够了
+ * 少两行就少两条间隙，中央出牌区因此宽裕得多（手机端尤其明显）。 */
+body[data-mode="ddz"] .table {
+  grid-template-areas:
+    "west    center  east"
+    "ddzact  ddzact  ddzact"
+    "hint    hint    hint"
+    "hand    hand    hand";
+  grid-template-rows: minmax(0, 1fr) auto auto auto;
+}
+
+/* 东座（座位 3）在三人局里没有玩家，整个藏掉；
+   北座（座位 2）是第二个对手，搬到东格去。
+   ⚠️ align-items:center 不能省 —— .seat-north 默认是 stretch，
+      搬进侧边后卡片会被拉伸成一根贯穿整行的白条（实测过）。 */
+body[data-mode="ddz"] .seat-east { display: none; }
+body[data-mode="ddz"] .seat-north {
+  grid-area: east;
+  justify-content: flex-end;
+  align-items: center;
+}
+
+/* 北座卡本身是横版（名字在左、张数在右），搬到侧边后必须转成竖版，
+   否则左右两个对手一个横一个竖，怎么看都不像「对称的两家」。 */
+body[data-mode="ddz"] .seat-north-card {
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  max-width: none;
+  padding: 22px 18px;
+  text-align: center;
+}
+body[data-mode="ddz"] .seat-north-card .seat-spacer { display: none; }
+body[data-mode="ddz"] .seat-north-card .seat-meta { text-align: center; }
+body[data-mode="ddz"] .seat-north-card .won-row-mid { align-items: center; max-width: none; }
+
+/* 出牌区：只用到 西(nw) / 北(ne) / 我(s) 三个位置。
+   北座那位玩家的出牌挪到 ne，原来占 ne 的东座出牌位直接藏掉。
+
+   布局刻意与四人玩法一致：**两个对手在上排、我在下排居中**（上下岔开），
+   而不是三个人挤成一行 —— 一行时三组牌彼此挨得很近，看不出谁是谁的。
+
+   ⚠️ 列宽用 `1fr / 1.6fr / 1fr` 而不是三等分：
+      我这边的牌组常常很长（顺子 / 飞机），中间列留宽一些；
+      长到超出格子也没关系，`.slot` 不裁切，牌组会向两侧均匀溢出。 */
+body[data-mode="ddz"] .pos-ne { display: none; }
+body[data-mode="ddz"] .pos-n { grid-area: ne; }
+body[data-mode="ddz"] .trick-area {
+  grid-template-areas:
+    "nw .  ne"
+    ".  s  .";
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.6fr) minmax(0, 1fr);
+  place-items: center;
+  width: 100%;
+  max-width: 1000px;
+  height: auto;
+  max-height: none;
+  /* 固定住底板高度：原来 height 跟着内容走，只出一手时底板就塌下去，
+     牌桌高度跟着忽大忽小（用户反馈「有时会隐藏」）。
+     给足最小高度后，牌局内它一直是一块稳定的出牌区。 */
+  min-height: 300px;
+  padding: 16px;
+  gap: 12px 22px;
+}
+/* 出牌位：空着时只是一张牌大小的虚框，出了牌就由牌组撑开 ——
+   原来固定 236px 宽的占位框在三人局里显得又大又空。 */
+body[data-mode="ddz"] .slot {
+  width: auto;
+  max-width: none;
+  height: auto;
+  min-height: 0;
+  padding: 0;
+}
+body[data-mode="ddz"] .slot:empty {
+  width: 64px;
+  height: 88px;
+  /* 底板本身就是浅灰，虚线再用浅色就彻底看不见了 ——
+     加深描边 + 一层白底，让「这里是个出牌位」在灰底上跳出来。 */
+  background: rgba(255, 255, 255, .62);
+  border: 1.5px dashed var(--line-3);
+  box-shadow: none;
+}
+/* .center 只装出牌区。显式纵向堆叠是为了留出扩展余地
+   （日后若要往中央再放东西，不必再和横向 flex 打架）。 */
+body[data-mode="ddz"] .center { flex-direction: column; gap: 12px; }
+
+/* ---------- 出牌区里的牌组 ---------- */
+/* 一次动作是一「组」牌。牌组不叠压（与手牌同一套原则），
+   长顺子靠 max-width + 折行兜住；牌型名写在牌组下方。 */
+.ddz-play-wrap {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  max-width: 100%;
+}
+/* ⚠️ 长牌型（10 张顺子等）比中间列宽，必须允许它向两侧均匀溢出 ——
+   否则 flex-wrap 会把它折成两行，反而比单行时更难看。
+   上排是空的，溢出不会盖到任何东西。手机端另有一份覆盖
+   （窄屏溢出会碰到两侧座位卡）。
+
+   光写 `max-width: none` 不够：`.ddz-play-wrap` 是 `.slot`（display:grid，
+   place-items:center）的 grid item，`justify-self: center` 会把它的宽度
+   按 fit-content 算，上限仍是格子宽度。必须显式 `width: max-content`。 */
+body[data-mode="ddz"] .ddz-play-wrap { max-width: none; width: max-content; }
+
+.ddz-play-group {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 3px;
+  /* 12 张（最长顺子）也要一行放下：12 × 64 + 11 × 3 = 801 */
+  max-width: 820px;
+}
+/* 桌面端牌面比手机端大一号（手机端在窄屏媒体查询里另有覆盖） */
+.ddz-play-group .card { width: 64px; height: 88px; }
+
+/* ---------- 定完地主：亮底牌 → 飞向地主 ----------
+ * 绝对定位的独立层，**不参与牌桌网格** —— 联机侧每次轮询都会重绘牌桌，
+ * 塞进 .trick-area 会被立刻清掉。
+ * 飞行本身由 collect-anim.js 的 FLIP 流程负责（与收牌动画同一套）。 */
+.ddz-deal-layer {
+  position: absolute;
+  inset: 0;
+  z-index: 40;
+  display: grid;
+  place-items: center;
+  pointer-events: none;
+}
+.ddz-deal-row {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  padding: 14px 22px 16px;
+  border-radius: var(--r-lg);
+  background: rgba(255, 255, 255, .94);
+  border: 1px solid rgba(201, 154, 46, .38);
+  box-shadow: 0 12px 34px rgba(20, 24, 31, .18);
+  animation: cardEnter .22s ease-out;
+}
+.ddz-deal-label { font-size: 13px; font-weight: 600; color: var(--gold); }
+.ddz-deal-cards { display: flex; gap: 10px; }
+.ddz-deal-cards .card { width: 62px; height: 86px; }
+/* 底牌展示同样用「小样式」：单边点数 + 中心花色，与出牌区 / 底牌弹窗一致 */
+.ddz-deal-cards .card .card-rank { font-size: 15px; line-height: 15px; height: 15px; }
+.ddz-deal-cards .card .card-suit-sm { width: 10px; height: 10px; }
+.ddz-deal-cards .card .card-corner.tl { top: 5px; left: 5px; }
+.ddz-deal-cards .card .card-suit-big { width: 52%; height: 52%; }
+
+/* ---------- 小牌面：只留左上角点数 + 中心花色 ----------
+ * 叫分手牌 / 出牌区 / 底牌弹窗里的牌只有 40~52px 宽。
+ * 原来「左上角点数 + 右下角反向点数 + 中心花色」三样挤在一起，
+ * 又挤又乱（小图上甚至看着像牌是歪的）。去掉右下角标后立刻清爽，
+ * 点数与花色依然完整可读。 */
+.ddz-play-group .card .card-corner.br,
+.ddz-bid-hand .card .card-corner.br,
+.ddz-bottom-cards .card .card-corner.br,
+.ddz-deal-cards .card .card-corner.br { display: none; }
+.ddz-play-group .card .card-corner.tl { top: 5px; left: 5px; }
+.ddz-play-group .card .card-rank { font-size: 15px; line-height: 15px; height: 15px; }
+.ddz-play-group .card .card-suit-sm { width: 10px; height: 10px; }
+.ddz-play-group .card .card-suit-big { width: 54%; height: 54%; }
+.ddz-bottom-cards .card .card-suit-big { width: 52%; height: 52%; }
+
+/* 斗地主出牌区的入场动画刻意**不做透明度**。
+   灰显靠 `.is-stale { opacity: .4 }`，而 CSS 动画播放期间 animation 的
+   opacity 会盖住它 —— 新出现的「已被压过」的牌就会先亮一下再变灰（闪）。
+   只做位移 + 缩放即可。 */
+@keyframes ddzCardEnter {
+  from { transform: translateY(14px) scale(.94); }
+  to   { transform: none; }
+}
+.ddz-play-wrap.card-enter,
+.ddz-pass-chip.card-enter { animation: ddzCardEnter .22s ease-out; }
+
+/* 被压过的牌：**变灰但不消失**。
+   玩家还能看到「刚才谁出了什么」（不必靠记忆），同时一眼分出
+   「现在要压的是哪一手」—— 只有最后那手是彩色的。
+   某个玩家再次行动（出牌 / 不出）时，他那一格才被替换掉。
+   ⚠️ 这一段必须靠**类切换**触发（renderTrick 里做增量更新），
+      不能靠重建节点 —— 重建会让过渡每次从头播，看着就是闪。 */
+.ddz-play-wrap.is-stale {
+  opacity: .4;
+  filter: grayscale(.9);
+  transition: opacity .22s ease-out, filter .22s ease-out;
+}
+
+/* 「不出」也要落在牌桌上（只写日志的话看不出是谁跳过的） */
+.ddz-pass-chip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  height: 36px;
+  padding: 0 18px;
+  border-radius: var(--r-pill);
+  background: var(--gold-soft);
+  border: 1.5px dashed var(--gold);
+  color: var(--gold);
+  font-size: 14px;
+  font-weight: 700;
+  letter-spacing: .04em;
+}
+
+/* ---------- 底牌（地主牌）· 点击查看弹窗 ----------
+ * 底牌不再常驻牌桌：手机端那一行会把牌桌顶部塞满，而定完地主之后
+ * 它就是一份静态信息。牌桌上只留 .hand-chip 入口，点了弹出这个小窗。 */
+.ddz-bottom-modal { max-width: 400px; }
+.ddz-bottom {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 12px;
+  padding: 10px 0 6px;
+}
+.ddz-bottom-cards { display: flex; gap: 12px; }
+.ddz-bottom-cards .card { width: 66px; height: 91px; }
+.ddz-bottom-cards .card .card-rank { font-size: 16px; line-height: 16px; height: 16px; }
+.ddz-bottom-cards .card .card-suit-sm { width: 11px; height: 11px; }
+.ddz-bottom-cards .card .card-corner.tl { top: 6px; left: 6px; }
+
+/* ---------- 手牌标题行右侧：底牌入口 + 身份 / 叫分 ----------
+ * 叫分数据原本塞在下方「本局我收下的分」那一条里，与手牌无关，
+ * 手机端还多占一行。移到手牌标题行最右侧后，一行说清「你的手牌 / 底牌 / 身份」。 */
+.hand-head-right {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.hand-role {
+  font-style: normal;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-2);
+  white-space: nowrap;
+}
+.hand-role.is-landlord { color: var(--gold); font-weight: 600; }
+.hand-role:empty { display: none; }
+
+/* 底牌入口：一枚小胶囊，点了弹出底牌小窗 */
+.hand-chip {
+  flex: none;
+  height: 24px;
+  padding: 0 10px;
+  border-radius: var(--r-pill);
+  border: 1px solid rgba(201, 154, 46, .45);
+  background: var(--gold-soft);
+  color: var(--gold);
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1;
+}
+.hand-chip:hover { background: #F6E9CE; }
+.hand-chip[hidden] { display: none; }
+
+/* ---------- 出牌操作区 ---------- */
+.ddz-actions {
+  grid-area: ddzact;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+.ddz-actions .btn { min-width: 96px; }
+
+/* ---------- 管不上时：把「不出」推成主按钮 ----------
+ * 压不过上一手时，「不出」是此刻**唯一**的合法操作，
+ * 但它原本是灰扑扑的幽灵按钮，玩家容易愣在那里找「为什么出不了」。
+ * 所以此时把「不出」染成金色实心（与「出牌」平时的主色一致），
+ * 「出牌」同时退成弱化态 —— 用颜色把玩家往正确的按钮上引。 */
+.ddz-actions .btn.is-guide {
+  background: var(--gold);
+  border-color: var(--gold);
+  color: #fff;
+  box-shadow: 0 4px 14px rgba(201, 154, 46, .34);
+}
+.ddz-actions .btn.is-guide:hover { filter: brightness(.94); }
+.ddz-actions .btn.is-dim { opacity: .32; }
+/* 出牌 / 叫 3 分用模式色，一眼能找到主操作 */
+body[data-mode="ddz"] .ddz-actions .btn-primary,
+body[data-mode="ddz"] .ddz-bid-buttons .btn-primary {
+  background: var(--gold);
+  border-color: var(--gold);
+  color: #fff;
+}
+body[data-mode="ddz"] .ddz-actions .btn-primary:hover,
+body[data-mode="ddz"] .ddz-bid-buttons .btn-primary:hover {
+  background: #B78A22;
+  border-color: #B78A22;
+}
+.ddz-combo-hint { font-size: 12px; color: var(--text-2); }
+/* 没选牌时提示为空 —— 空元素在窄屏仍会占掉一整行（flex: 1 1 100%），要折叠掉 */
+.ddz-combo-hint:empty { display: none; }
+
+/* ---------- 叫分弹窗 ---------- */
+/* ---------- 叫分弹窗 ---------- */
+/* 比默认弹窗宽一些：里面要放 17 张手牌 + 三家叫分一览 */
+.ddz-bid-modal { max-width: 580px; max-height: 92vh; overflow-y: auto; }
+
+/* 叫分前必须先看手牌 —— 手机端弹窗是底部抽屉，会把手牌区整个盖住，
+   而「有几张 2、有没有王」恰恰是决定叫几分的关键。
+   手牌搬进弹窗里展示，只作参考、不可点选。 */
+.ddz-bid-hand-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 16px;
+  padding: 12px 14px;
+  background: var(--inset-2);
+  border: 1px solid var(--line-2);
+  border-radius: var(--r-md);
+}
+.ddz-bid-hand-label { font-size: 12px; font-weight: 600; color: var(--text-2); }
+.ddz-bid-hand {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 6px;
+}
+.ddz-bid-hand .card {
+  width: 46px;
+  height: 64px;
+  cursor: default;
+  box-shadow: 0 1px 2px rgba(20, 24, 31, .06);
+}
+.ddz-bid-hand .card .card-rank { font-size: 12px; line-height: 12px; height: 12px; }
+.ddz-bid-hand .card .card-suit-sm { width: 8px; height: 8px; }
+.ddz-bid-hand .card .card-corner.tl { top: 3px; left: 3px; }
+.ddz-bid-hand .card .card-corner.br { bottom: 3px; right: 3px; }
+/* 小牌上中央花色不能太大，否则会顶到左上角的点数上 */
+.ddz-bid-hand .card .card-suit-big { width: 40%; height: 40%; }
+.ddz-bid-hand .card.joker { --joker-mark: 18px; --joker-label: 8px; }
+
+/* 各家叫分一览：谁不叫、谁叫了几分，一眼看全 */
+.ddz-bid-list {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 8px;
+  margin-top: 12px;
+}
+.ddz-bid-item {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
+  padding: 5px 12px;
+  border-radius: var(--r-pill);
+  background: var(--inset);
+  border: 1px solid transparent;
+  font-size: 12px;
+  color: var(--text-2);
+}
+.ddz-bid-item b { font-weight: 600; color: var(--text-1); }
+.ddz-bid-item em { font-style: normal; }
+.ddz-bid-item.is-me { border-color: var(--line-3); }
+.ddz-bid-item.is-bid {
+  color: var(--gold);
+  background: var(--gold-soft);
+  border-color: rgba(201, 154, 46, .35);
+}
+.ddz-bid-item.is-bid b { color: var(--gold); }
+.ddz-bid-item.is-pass { opacity: .72; }
+.ddz-bid-item.is-wait { border-style: dashed; border-color: var(--line-3); }
+
+.ddz-bid-buttons {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+  margin-top: 18px;
+}
+.ddz-bid-buttons .btn { height: 44px; }
+.ddz-bid-buttons .btn.is-off { opacity: .35; cursor: not-allowed; }
+
+/* ---------- 大小王 ---------- */
+/* 王没有花色，单走一套「金色 + 一个王字」的版式。
+   display:grid + place-items:center 让「王」字真正居中 —— 少了它，
+   这个 span 会按普通行内元素排，字会贴着底边、还被左侧的标签挤歪。
+   尺寸用变量控制：同一张牌会出现在手牌区、出牌区、底牌区，
+   三处牌宽差一倍，写死字号会在小牌上糊出牌外。 */
+.card.joker {
+  --joker-mark: 30px;
+  --joker-label: 10px;
+  display: grid;
+  place-items: center;
+  color: var(--gold);
+  background: linear-gradient(158deg, #FFFDF7, var(--gold-soft));
+  border-color: rgba(201, 154, 46, .42);
+}
+.card.joker .joker-label {
+  position: absolute;
+  top: 6px;
+  left: 7px;
+  font-size: var(--joker-label);
+  font-weight: 700;
+  line-height: 1;
+}
+.card.joker .joker-mark {
+  font-size: var(--joker-mark);
+  font-weight: 800;
+  line-height: 1;
+  opacity: .9;
+}
+.ddz-play-group .card.joker { --joker-mark: 20px; --joker-label: 9px; }
+.ddz-bottom-cards .card.joker { --joker-mark: 19px; --joker-label: 9px; }
+
+/* ============================================================
+ * 14. 手机端「隐藏式上边栏」
+ *
+ * 局内顶栏在手机上占掉 56px，而它承载的信息（玩法 / 局数）在牌桌上
+ * 已经另有显示。默认收起成一条 34px 的窄条：只留返回 + 玩法 + 局数，
+ * 右侧的信息 / 设置 / 退出收起来；**点一下展开**，再点收起。
+ *
+ * ⚠️ 只作用于对局屏（body[data-screen="game"]）—— 主页 / 大厅的顶栏不动。
+ * ⚠️ 收起时右半边的按钮用 display:none 而不是 opacity ——
+ *    否则它们仍然可点，玩家会点到看不见的按钮。
+ * ============================================================ */
+@media (max-width: 900px) {
+  body[data-screen="game"] .screen#screenGame > .topbar {
+    height: 34px;
+    padding: 0 10px;
+    gap: 10px;
+    overflow: hidden;
+    cursor: pointer;
+    transition: height .16s ease-out;
+  }
+  body[data-screen="game"] .screen#screenGame > .topbar .topbar-right { display: none; }
+  body[data-screen="game"] .screen#screenGame > .topbar .mode-chip {
+    height: 22px;
+    padding: 0 9px;
+    font-size: 11px;
+  }
+  body[data-screen="game"] .screen#screenGame > .topbar .round-text { font-size: 11px; }
+  /* 收起态的「可展开」提示 */
+  body[data-screen="game"] .screen#screenGame > .topbar::after {
+    content: '▾';
+    font-size: 12px;
+    line-height: 1;
+    color: var(--text-3);
+  }
+
+  /* 展开态：还原成完整顶栏 */
+  body.topbar-open .screen#screenGame > .topbar {
+    height: var(--topbar-h);
+    padding: 0 16px;
+  }
+  body.topbar-open .screen#screenGame > .topbar .topbar-right { display: flex; }
+  body.topbar-open .screen#screenGame > .topbar .mode-chip {
+    height: 30px;
+    padding: 0 11px;
+    font-size: 12px;
+  }
+  body.topbar-open .screen#screenGame > .topbar .round-text { font-size: 12px; }
+  body.topbar-open .screen#screenGame > .topbar::after { display: none; }
+}
+
+/* ============================================================
+ * 13. 桌面端手牌：排好、不叠压，放不下就等比缩小
+ *
+ * 需求明确要求手牌**不要叠压**（叠压 + 选中上移会让人觉得牌是「乱堆在一起」的）。
+ * 所以这里不再用负 margin，改成「按容器宽度算每张牌的最大允许宽度」：
+ *
+ *   宽 = min(正常卡宽, (容器宽 − 12 × 间距) / 13)
+ *
+ * 13 是四人玩法的手牌上限（红心 / 拱猪）。宽屏时取正常卡宽（不缩），
+ * 窄到放不下才等比缩小 —— 高度用 aspect-ratio 跟着走，牌面比例不变。
+ * 斗地主最多 20 张，13 张一行放不下就自然折到第二行，仍然不叠压。
+ *
+ * ⚠️ 必须限定 min-width: 901px —— 900px 以下是「两排铺满」的移动端布局，
+ *    它的 .hand-cards .card 用 `calc((100% - 36px) / 7)` 算宽度；
+ *    本规则写在文件更后面、同特异性，漏过去会把移动端的两排布局顶掉。
+ * ============================================================ */
+@media (min-width: 901px) {
+  .hand-cards {
+    --hand-gap: 8px;
+    gap: var(--hand-gap);
+    /* 给悬停/选中上浮留出空间，否则最上面一排会被 .hand-area 裁到 */
+    padding-top: 14px;
+  }
+  .hand-cards .card {
+    /* 12 × 8px = 96px 是 13 张牌之间的总间距 */
+    width: min(var(--card-w), calc((100% - 96px) / 13));
+    height: auto;
+    aspect-ratio: 84 / 116;
+  }
+  /* 缩到很窄时角标也要跟着收，否则点数会顶到牌外 */
+  .hand-cards .card .card-rank { font-size: min(17px, calc(var(--card-w) * 0.2)); }
+  .hand-cards .card .card-corner.tl { top: 6px; left: 6px; }
+  .hand-cards .card .card-corner.br { bottom: 6px; right: 6px; }
+}
+
+/* ---------- 弹窗条里的次要说明（当前最高分 / 已选张数） ---------- */
+.hand-hint { font-size: 12px; color: var(--text-3); }
+
+/* ---------- 窄屏 ---------- */
+@media (max-width: 900px) {
+  /* 出牌区：手机端中央那一列只有 ~218px 宽，两列各 109px ——
+     一次出 5 张牌就得折成 3+2，很难看。
+     改成**单列竖排**：每个出牌位独占整行 218px，5 张牌一行放得下。 */
+  body[data-mode="ddz"] .trick-area {
+    grid-template-areas: "nw" "ne" "s";
+    grid-template-columns: minmax(0, 1fr);
+    max-width: none;
+    min-height: 220px;
+    gap: 6px;
+    padding: 8px;
+  }
+  body[data-mode="ddz"] .slot:empty { width: 50px; height: 70px; }
+  body[data-mode="ddz"] .slot-cell { gap: 3px; }
+  body[data-mode="ddz"] .seat-north-card { padding: 6px 3px; gap: 3px; }
+  /* 窄屏侧座位只有 62px 宽，而 .seat-meta 默认 nowrap ——
+     「剩 17 张 · 农民 · 0 分」会整行溢出卡片、被视口切掉。
+     基础样式里的 `.seat-side .seat-meta` 管不到北座卡，这里必须单独给一份。 */
+  body[data-mode="ddz"] .seat-north-card .seat-meta {
+    flex-direction: column;
+    align-items: center;
+    gap: 0;
+    font-size: 10px;
+    line-height: 1.4;
+    max-width: 100%;
+  }
+  body[data-mode="ddz"] .seat-north-card .seat-meta i::before { content: ""; }
+
+  /* 手机端出牌位可用宽度实测只有 ~202px（中央列 218 − 两侧 padding）。
+     要「每家的牌横向排成一行」就不能折行，所以按张数**逐级收小牌面**：
+     5 张以内 38px，6 张 32、7 张 27、8 张 23。
+     9 张以上（长顺子 / 飞机）在 390px 屏上放不下 —— 在「不叠压」的前提下
+     这是物理限制，再小点数就完全看不清了，所以让它折成两行。 */
+  /* 手机端中央列只有 ~202px，溢出会碰到两侧座位卡 —— 收回格子内、按列宽折行 */
+  .ddz-play-wrap { gap: 3px; width: auto; max-width: 100%; }
+  .ddz-play-group { max-width: 100%; gap: 2px; }
+  .ddz-play-group .card { width: 38px; height: 53px; }
+  .ddz-play-group:has(.card:nth-child(6)) .card { width: 32px; height: 45px; }
+  .ddz-play-group:has(.card:nth-child(7)) .card { width: 27px; height: 38px; }
+  .ddz-play-group:has(.card:nth-child(8)) .card { width: 23px; height: 32px; }
+  .ddz-play-group .card .card-rank { font-size: 12px; line-height: 12px; height: 12px; }
+  .ddz-play-group .card .card-suit-sm { width: 8px; height: 8px; }
+  .ddz-play-group .card .card-corner.tl { top: 3px; left: 3px; }
+  /* 牌面越小，中央花色越要收，否则会顶到左上角的点数上 */
+  .ddz-play-group:has(.card:nth-child(6)) .card .card-suit-big { width: 46%; height: 46%; }
+  .ddz-play-group:has(.card:nth-child(7)) .card .card-suit-big { width: 42%; height: 42%; }
+  .ddz-play-group:has(.card:nth-child(8)) .card .card-suit-big { width: 38%; height: 38%; }
+  /* 亮底牌展示层：手机端牌小一号 */
+  .ddz-deal-row { padding: 10px 14px 12px; gap: 8px; }
+  .ddz-deal-cards { gap: 8px; }
+  .ddz-deal-cards .card { width: 50px; height: 69px; }
+  .ddz-deal-cards .card .card-rank { font-size: 13px; line-height: 13px; height: 13px; }
+  .ddz-deal-cards .card .card-suit-sm { width: 9px; height: 9px; }
+  .ddz-deal-label { font-size: 12px; }
+  .ddz-bottom { padding: 6px 0 2px; gap: 8px; }
+  .ddz-bottom-cards { gap: 8px; }
+  .ddz-bottom-cards .card { width: 54px; height: 75px; }
+  .ddz-bottom-cards .card .card-rank { font-size: 14px; line-height: 14px; height: 14px; }
+  .ddz-bottom-cards .card .card-corner.tl { top: 5px; left: 5px; }
+  .ddz-play-group .card.joker { --joker-mark: 14px; --joker-label: 7px; }
+  .ddz-bottom-cards .card.joker { --joker-mark: 18px; --joker-label: 8px; }
+  .hand-area .card.joker { --joker-mark: 18px; --joker-label: 8px; }
+  .hand-head-right { gap: 6px; }
+  .hand-role { font-size: 11px; }
+  .hand-chip { height: 22px; padding: 0 8px; font-size: 10px; }
+
+  .ddz-actions { gap: 8px; }
+  .ddz-actions .btn { min-width: 0; flex: 1 1 auto; max-width: 140px; }
+  .ddz-combo-hint { flex: 1 1 100%; text-align: center; font-size: 11px; }
+
+  /* 叫分弹窗：手牌搬进弹窗后弹窗会变高，抽屉要能滚动 */
+  .ddz-bid-modal { max-height: 92vh; overflow-y: auto; }
+  .ddz-bid-hand-wrap { padding: 10px 12px; gap: 6px; margin-top: 12px; }
+  .ddz-bid-hand { gap: 5px; }
+  .ddz-bid-hand .card { width: 38px; height: 53px; }
+  .ddz-bid-hand .card .card-rank { font-size: 12px; line-height: 12px; height: 12px; }
+  .ddz-bid-hand .card .card-corner.tl { top: 3px; left: 3px; }
+  .ddz-bid-hand .card .card-corner.br { bottom: 3px; right: 3px; }
+  .ddz-bid-hand .card.joker { --joker-mark: 15px; --joker-label: 7px; }
+  .ddz-bid-list { gap: 6px; margin-top: 10px; }
+  .ddz-bid-item { padding: 4px 10px; font-size: 11px; }
+
+  .ddz-bid-buttons { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .ddz-bid-buttons .btn { height: 42px; }
+}
