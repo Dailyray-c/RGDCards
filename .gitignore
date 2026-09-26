@@ -11,6 +11,8 @@ outputs/
 .workbuddy-ai/
 __pycache__/
 node_modules/
+.playwright-cli/
+*.genie
 .DS_Store
 Thumbs.db
 
