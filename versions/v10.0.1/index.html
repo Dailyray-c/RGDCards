@@ -97,6 +97,7 @@
       <div class="field">
         <div class="field-head">
           <span class="field-label">对局选项</span>
+          <button class="link" id="btnMoreSettings">更多设置 ›</button>
         </div>
         <div class="surface opt-card">
           <div class="switch-row" id="rowMoonOpt">
@@ -107,29 +108,10 @@
             <span class="switch-text">启用传牌环节<i>关闭后每局直接发牌开打</i></span>
             <button class="switch on" id="swPass" role="switch" aria-checked="true" aria-label="启用传牌环节"></button>
           </div>
+          <p class="switch-note" id="passNote" hidden>拱猪没有传牌规则，发牌后直接开打。</p>
           <div class="switch-row">
             <span class="switch-text">AI 出牌间隔<i>保留观战间隔，方便看清每张牌</i></span>
             <button class="switch on" id="swDelay" role="switch" aria-checked="true" aria-label="延迟出牌动画"></button>
-          </div>
-          <!-- 拱猪专属：仅拱猪模式显示（applyModeChrome 控制） -->
-          <div class="opt-gz" id="gzHomeOpts" hidden>
-            <div class="opt-sub-label">拱猪专属</div>
-            <div class="switch-row">
-              <span class="switch-text">启用亮牌（卖牌）<i>开局前可亮出 猪 / 羊 / 变压器 / 红桃A，亮出的牌分数翻倍</i></span>
-              <button class="switch on" id="swSell" role="switch" aria-checked="true" aria-label="启用亮牌"></button>
-            </div>
-            <div class="field-row">
-              <label class="field-label" for="inpThreshold">终局分数</label>
-              <div class="field-ctl">
-                <input type="number" id="inpThreshold" class="num-input" value="-1000" step="100">
-                <div class="chip-row" id="thresholdChips">
-                  <button class="chip" data-v="-500">−500</button>
-                  <button class="chip on" data-v="-1000">−1000</button>
-                  <button class="chip" data-v="-2000">−2000</button>
-                </div>
-                <p class="field-hint">任一家累计分 ≤ 此值时终局，累计分<b>最高</b>者获胜。</p>
-              </div>
-            </div>
           </div>
         </div>
       </div>
@@ -191,7 +173,7 @@
         </span>
       </div>
 
-      <div class="surface history-card">
+      <div class="surface">
         <div class="surface-head"><b>最近战绩</b><button class="link" id="btnHistoryAll">全部 ›</button></div>
         <div class="history" id="historyList"></div>
       </div>
@@ -482,10 +464,30 @@
         <div class="link-row"><span>AI 难度</span><em id="setDiffValue">熟练</em></div>
         <div class="link-row" id="settingsMoonRow"><span>满贯处理</span><em id="setMoonValue">自己 −26</em></div>
         <div class="link-row" id="settingsPassRow"><span>传牌环节</span><em id="setPassValue">开启</em></div>
-        <div class="link-row" id="settingsSellRow" hidden><span>亮牌（卖牌）</span><em id="setSellValue">开启</em></div>
-        <div class="link-row" id="settingsThresholdRow" hidden><span>终局分数</span><em id="setThresholdValue">−1000</em></div>
       </div>
-      <p class="group-note">这些项都在主页的配置区调整，改动会在下一局生效。</p>
+      <p class="group-note">这四项在主页的配置区调整，改动会在下一局生效。</p>
+    </div>
+
+    <div class="group" id="gzOptions">
+      <span class="group-label">拱猪专属</span>
+      <div class="surface group-card">
+        <div class="switch-row">
+          <span class="switch-text">启用亮牌（卖牌）<i>开局前可亮出 猪 / 羊 / 变压器 / 红桃A，亮出的牌分数翻倍</i></span>
+          <button class="switch on" id="swSell" role="switch" aria-checked="true" aria-label="启用亮牌"></button>
+        </div>
+        <div class="field-row">
+          <label class="field-label" for="inpThreshold">终局分数</label>
+          <div class="field-ctl">
+            <input type="number" id="inpThreshold" class="num-input" value="-1000" step="100">
+            <div class="chip-row" id="thresholdChips">
+              <button class="chip" data-v="-500">−500</button>
+              <button class="chip on" data-v="-1000">−1000</button>
+              <button class="chip" data-v="-2000">−2000</button>
+            </div>
+            <p class="field-hint">任一家累计分 ≤ 此值时终局，累计分<b>最高</b>者获胜。</p>
+          </div>
+        </div>
+      </div>
     </div>
 
     <div class="group">

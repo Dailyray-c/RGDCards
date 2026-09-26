@@ -317,8 +317,7 @@ function renderGameChrome() {
 function applyModeChrome() {
   const gz = isGongzhu();
   const ddz = isDdz();
-  // 主页对局选项卡里的「拱猪专属」块（亮牌 / 终局分数，2026-09-26 从设置面板搬来）
-  $('gzHomeOpts').hidden = !gz;
+  $('gzOptions').hidden = !gz;
   $('rowSell').hidden = !gz;
   $('rowMoonOpt').hidden = gz || ddz;
   $('settingsMoonRow').hidden = gz || ddz;
@@ -326,12 +325,9 @@ function applyModeChrome() {
   $('rowQueen').hidden = ddz;
   $('rowExtra').hidden = ddz;
   $('rowPass').hidden = gz || ddz;
-  // 传牌只有红心大战有：拱猪 / 斗地主下开关整行收掉（不做置灰提示）
-  $('rowPassOpt').hidden = gz || ddz;
-  // 设置面板的只读镜像：满贯 / 传牌仅红心；亮牌 / 终局分数仅拱猪
-  $('settingsPassRow').hidden = gz || ddz;
-  $('settingsSellRow').hidden = !gz;
-  $('settingsThresholdRow').hidden = !gz;
+  // 设置面板的只读镜像：斗地主既没有满贯也没有传牌，两行都收掉
+  const passRow = $('settingsPassRow');
+  if (passRow) passRow.hidden = ddz;
   // 底牌入口按钮：只有斗地主且已定地主时才出现（renderDdzBottom 会再校准一次）
   const bottomBtn = $('btnShowBottom');
   if (bottomBtn && !ddz) bottomBtn.hidden = true;
@@ -988,8 +984,7 @@ function renderHand() {
 
   const soldSet = new Set(state.sold || []);
   for (const c of me.hand) {
-    // legalCards 已把两种形态摊平成「牌集合」，两条分支判断完全一致
-    const can = isMyTurn && legalCards.has(c);
+    const can = isMyTurn && (!isDdz() ? legalCards.has(c) : legalCards.has(c));
     const el = cardEl(c, {
       playable: can,
       blocked: isMyTurn && !can,
@@ -1029,9 +1024,8 @@ function renderHand() {
 function ddzHasBeat() {
   const me = state.players[0];
   if (!me || state.phase !== 'playing' || activeSeat() !== 0) return false;
-  // 同上：联机是牌型列表、单机是牌列表，摊平后取 size 才两种形态都成立
   const legal = ONLINE_ACTIVE() ? (ONLINE.myLegalPlays() || []) : ddzLocalLegalCards();
-  return new Set(legal.flat()).size > 0;
+  return legal.length > 0;
 }
 
 /** 斗地主操作区右侧的提示文案：说清「选中的这组牌是什么牌型 / 能不能出」。
@@ -1090,12 +1084,8 @@ function toggleDdzCard(card) {
     // 不能出的牌根本不该被选中 —— 它不出现在任何合法牌型里，
     // 点它只会让玩家以为「选了就能出」。手牌渲染已经不给它绑事件，
     // 这里是第二道防线（联机换帧、脚本调用等）。
-    // ⚠️ 两个来源的**形态不同**：
-    //    联机 myLegalPlays() = 牌型列表 [[c,c],[c,c,c],…]；单机 ddzLocalLegalCards() = 牌列表 [c,…]。
-    //    必须摊平成牌集合再判断。此前直接 legal.includes(card)，联机下恒 false
-    //    —— 真人点了牌却选不中、出牌按钮永远禁用，整局卡死（2026-09-26 修）。
     const legal = ONLINE_ACTIVE() ? (ONLINE.myLegalPlays() || []) : ddzLocalLegalCards();
-    if (!new Set(legal.flat()).has(card)) return;
+    if (!legal.includes(card)) return;
     state.selectedPlay.push(card);
   }
   renderHand();
@@ -2964,7 +2954,8 @@ $('diffSeg').addEventListener('click', (e) => {
   renderHomeValues();
 });
 
-/* ---- 顶栏「帮助 · 设置」（更多设置入口已移除：设置项统一在主页对局选项区） ---- */
+/* ---- 主页「更多设置」/ 顶栏「帮助 · 设置」 ---- */
+$('btnMoreSettings').addEventListener('click', () => openPanel('settings'));
 $('btnSettingsHome').addEventListener('click', () => openPanel('settings'));
 $('btnSettingsGame').addEventListener('click', () => openPanel('settings'));
 $('btnHelpHome').addEventListener('click', () => { switchRulesTab('rule'); openPanel('rules'); });
@@ -3211,10 +3202,13 @@ function syncSettingsUI() {
     el.disabled = !!disabled;
   };
   setSw('swMoon', state.settings.moonSelf);
-  // 传牌开关只在红心大战显示（拱猪 / 斗地主整行隐藏，见 applyModeChrome），无需置灰
-  setSw('swPass', passEnabled());
+  // 拱猪没有传牌规则 → 开关置灰，避免玩家以为打开就能传牌
+  setSw('swPass', passEnabled(), gz);
   setSw('swDelay', state.settings.delay);
   setSw('swSell', state.settings.sell);
+
+  const note = $('passNote');
+  if (note) note.hidden = !gz;
 
   const inp = $('inpThreshold');
   if (inp) inp.value = state.settings.threshold;
@@ -3228,8 +3222,6 @@ function syncSettingsUI() {
   setTxt('setDiffValue', diff ? diff.label : '熟练');
   setTxt('setMoonValue', state.settings.moonSelf ? '自己 −26' : '其余三家 +26');
   setTxt('setPassValue', gz ? '不传牌' : (state.settings.passHearts ? '开启' : '关闭'));
-  setTxt('setSellValue', state.settings.sell ? '开启' : '关闭');
-  setTxt('setThresholdValue', String(state.settings.threshold).replace('-', '−'));
   setTxt('playerNameEcho', SEAT_LABEL[0]);
 
   // 主页拱猪卡上的终局线跟着设置走

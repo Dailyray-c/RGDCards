@@ -182,11 +182,6 @@ body[data-mode="gongzhu"] .brand-mark { background: var(--gongzhu-soft); color: 
   align-items: center;
   justify-content: center;
   gap: 6px;
-  /* ⚠️ flex: none —— 按钮是固定高度控件，绝不允许被 flex 容器压缩。
-     纵向 flex 面板（如战绩面板）内容超高时，默认 flex-shrink:1 会把按钮
-     压成一条扁片（清空战绩按钮事故，2026-09-26 修）。需要弹性宽度的容器
-     （.online-actions 等）已在各自的容器规则里显式覆盖 flex。 */
-  flex: none;
   height: var(--ctl-h);
   padding: 0 16px;
   border-radius: var(--r-sm);
@@ -290,14 +285,6 @@ body[data-mode="gongzhu"] .brand-mark { background: var(--gongzhu-soft); color: 
 }
 .opt-card { padding: 4px 20px; }
 .opt-card > .switch-row:first-child { border-top: none; }
-/* 卡片顶线只该挂在「第一个可见行」上，但 :first-child 匹配的是 DOM 首行（满贯）。
-   拱猪 / 斗地主模式下满贯、传牌两行隐藏，首个可见行是第三行的「AI 出牌间隔」，
-   顶线要单独去掉（2026-09-26 用户反馈）。 */
-body[data-mode="gongzhu"] .opt-card > .switch-row:nth-child(3),
-body[data-mode="ddz"] .opt-card > .switch-row:nth-child(3) { border-top: none; }
-/* 「终局分数」与亮牌开关同属拱猪专属块，中间不加分隔线；
-   「拱猪专属」标签与亮牌之间那条线保留。 */
-.opt-gz .field-row { border-top: none; }
 .switch-text {
   display: flex;
   flex-direction: column;
@@ -307,18 +294,7 @@ body[data-mode="ddz"] .opt-card > .switch-row:nth-child(3) { border-top: none; }
   min-width: 0;
 }
 .switch-text i { font-style: normal; font-size: 12px; font-weight: 400; color: var(--text-3); }
-
-/* 「拱猪专属」子分组：亮牌 / 终局分数（2026-09-26 从设置面板并入主页对局选项）。
-   ⚠️ display:flex 会盖掉 [hidden]，必须显式补回 display:none */
-.opt-gz { display: flex; flex-direction: column; }
-.opt-gz[hidden] { display: none; }
-.opt-sub-label {
-  padding: 14px 0 0;
-  font-size: 12px;
-  font-weight: 600;
-  letter-spacing: .5px;
-  color: var(--gongzhu);
-}
+.switch-note { font-size: 12px; color: var(--text-3); padding: 0 0 12px; }
 
 .switch {
   flex: none;
@@ -439,10 +415,7 @@ button.link-row:hover { color: var(--mode); }
   align-content: start;
   gap: 36px;
   padding: 32px 40px 40px;
-  /* 限宽只服务超宽屏（2K / 带鱼屏）的居中观感：
-     1920 及以下全铺满，视觉留白 = 页面自身的 40px 内边距。
-     （1400 时代 1920 屏两侧各空 260px，被用户连续三轮指为「右侧空白」。） */
-  max-width: 2000px;
+  max-width: 1400px;
   width: 100%;
   margin: 0 auto;
   overflow-y: auto;
@@ -527,21 +500,14 @@ button.link-row:hover { color: var(--mode); }
 .cta-row .btn-primary { flex: 1 1 auto; }
 #btnContinue { flex: none; }
 
-/* ---------- 右列 ----------
- * 等高拉伸：grid 默认 stretch 让右列撑到与左列等高，多余高度由
- * 「最近战绩」卡吸收（白底列表的弹性留白最不显眼）。
- * （sticky 占满视口的方案试过一轮，用户不要卡内滚动条，已回退。）
- * ⚠️ 页面横向的留白由 .home 的 max-width 控制，与这里无关。 */
+/* ---------- 右列 ---------- */
 .home-side {
+  align-self: start;
   display: flex;
   flex-direction: column;
   gap: 16px;
   min-width: 0;
 }
-
-/* 「最近战绩」卡：弹性填满右列剩余高度 */
-.history-card { flex: 1 1 auto; display: flex; flex-direction: column; min-height: 0; }
-.history-card .history { flex: 1 1 auto; }
 
 .player-card { display: flex; align-items: center; gap: 14px; padding: 18px 20px; }
 .player-text { display: flex; flex-direction: column; gap: 3px; min-width: 0; flex: 1 1 auto; }
@@ -1417,16 +1383,14 @@ kbd {
   .brand-text b { font-size: 16px; }
   .brand-text i { display: none; }
   .btn { padding: 0 14px; font-size: 14px; }
-  /* 方形图标按钮走标准 token（44px），与 .btn 同高 ——
-     顶栏里「对局信息」（.btn）与「设置」（.icon-btn）必须一样高。
-     游戏页收起态 34px 细条里的例外在下面第 14 节单独覆盖。 */
-  .icon-btn { width: var(--ctl-h); height: var(--ctl-h); }
-  .icon-btn svg { width: 22px; height: 22px; }
+  /* 方形图标按钮维持 34px：游戏页收起态顶栏恰好 34px 高，再高会被裁掉 */
+  .icon-btn { width: 34px; height: 34px; }
+  .icon-btn svg { width: 20px; height: 20px; }
   .btn-lg { padding: 0 20px; }
 
   /* 顶栏在窄屏要腾地方：退出收掉，对局信息只留图标 */
   #btnExitGame { display: none; }
-  #btnInfoPanel { width: var(--ctl-h); padding: 0; gap: 0; }
+  #btnInfoPanel { width: 34px; padding: 0; gap: 0; }
   .mode-chip { height: 30px; padding: 0 11px; font-size: 12px; }
   .round-text { font-size: 12px; }
 
@@ -2668,11 +2632,6 @@ body[data-mode="ddz"] .ddz-bid-buttons .btn-primary:hover {
     transition: height .16s ease-out;
   }
   body[data-screen="game"] .screen#screenGame > .topbar .topbar-right { display: none; }
-  /* 收起态细条只有 34px 高：里面的返回按钮单独压回 34px。
-     ⚠️ 必须用 :not(.topbar-open) 限定 —— 否则展开态的「设置」按钮也被压成 34px，
-     与 44px 的「对局信息」并排不同高（2026-09-26 踩过）。 */
-  body[data-screen="game"]:not(.topbar-open) .screen#screenGame > .topbar .icon-btn { width: 34px; height: 34px; }
-  body[data-screen="game"]:not(.topbar-open) .screen#screenGame > .topbar .icon-btn svg { width: 20px; height: 20px; }
   body[data-screen="game"] .screen#screenGame > .topbar .mode-chip {
     height: 22px;
     padding: 0 9px;
