@@ -84,10 +84,11 @@ function sortHand(hand) {
  * @param {string|null} ctx.leadSuit  本墩主导花色（null 表示自己是首引）
  * @param {boolean}  ctx.isFirstTrick 是否第一墩
  * @param {boolean}  ctx.mustLeadClub2 是否强制首引梅花 2（仅第一墩第一家为 true）
+ * @param {boolean}  ctx.heartsBroken  红心是否已破（有人出过红心后可领出红心）
  * @returns {string[]} 合法牌列表
  */
 function legalCards(hand, ctx = {}) {
-  const { leadSuit = null, isFirstTrick = false, mustLeadClub2 = false } = ctx;
+  const { leadSuit = null, isFirstTrick = false, mustLeadClub2 = false, heartsBroken = false } = ctx;
   if (!hand.length) return [];
 
   // 约束 0：第一墩首引只能出梅花 2。
@@ -112,8 +113,8 @@ function legalCards(hand, ctx = {}) {
     return pool;
   }
 
-  if (!leadSuit) {
-    // 约束 3：首引不能出红心
+  if (!leadSuit && !heartsBroken) {
+    // 约束 3：红心未破时，首引不能领出红心（手里只有红心时才被迫解禁）
     const withoutHearts = pool.filter((c) => !isHeart(c));
     if (withoutHearts.length) pool = withoutHearts;
   }

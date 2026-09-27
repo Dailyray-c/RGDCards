@@ -29,11 +29,26 @@ const session = {
   pollToken: 0,        // 用于取消旧的轮询循环
   pumpToken: 0,        // 用于取消旧的 AI 节拍循环（每次启动 ++ 使旧循环失效）
   playback: null,      // 播放队列：把"轮询漏掉的中间态"逐帧补播，见 enqueuePlayback
+  hbTimer: 0,          // 在线心跳定时器（见 startHeartbeat）
+  lastBeatAt: 0,       // 上一次心跳时间（前台/后台不同节拍）
+  lastPresenceScan: 0, // 房主：上一次扫描全员心跳的时间
   listeners: new Set(),
   lastError: '',
 };
 
 let nameSyncTimer = 0;   // 昵称写回房间的防抖句柄（见 setPlayerName）
+
+/** aiSeats = 空位 + 离席（away）座位 + 超时托管（aiTakeover）座位：它们的回合都由 AI 代打。
+ *  ⚠️ 所有「重算 aiSeats」的地方都必须走这个函数 —— 只按空位算会把代打状态吃掉。
+ *  ⚠️ away（掉线）与 aiTakeover（在线但超时未操作）是两种不同来源：
+ *     away 由心跳扫描（scanPresence）按"人是否还在"维护、回来即交还；
+ *     aiTakeover 由回合超时托管设置、心跳恢复也不会清（人一直都在，只是没动），
+ *     只能由本人主动出牌或点「收回控制权」释放。两者任一为真都算 AI 代打。 */
+function computeAiSeats(draft) {
+  const count = draft.mode === 'ddz' ? 3 : (draft.seatCount || 4);
+  return Array.from({ length: count }, (_, i) => i)
+    .filter((i) => !draft.seats[i] || draft.seats[i].away || draft.seats[i].aiTakeover);
+}
 
 /* ---------- 玩家标识 ---------- */
 
@@ -256,7 +271,7 @@ function currentView() {
 async function createRoom(mode, difficulty) {
   const cfg = root.NET_CONFIG.getNetConfig();
   if (!cfg.ready) {
-    setError('未配置联机服务。请先在 net-config.js 填入 Upstash URL 与 Token。');
+    setError('未配置联机服务。请打开「联机服务设置」填入服务器地址，或开启「局域网联机」。');
     return null;
   }
   session.playerId = ensurePlayerId();
@@ -269,9 +284,7 @@ async function createRoom(mode, difficulty) {
     });
     room.seats[0] = { id: session.playerId, name: session.playerName, ready: true };
     // 建房时就把其余空位标成 AI 托管，大厅里立刻能看出「差几个人」
-    const seatCount = room.seatCount || 4;
-    room.aiSeats = Array.from({ length: seatCount }, (_, i) => i)
-      .filter((i) => !room.seats[i]);
+    room.aiSeats = computeAiSeats(room);
     if (room.mode === 'ddz') {
       room.settings.aiDifficulty = difficulty || room.settings.aiDifficulty || 'normal';
     }
@@ -279,7 +292,7 @@ async function createRoom(mode, difficulty) {
     let created = null;
     try { created = await CORE.createRoom(code, room); } catch (e) {
       if (e.code === 'NET_NOT_CONFIGURED') {
-        setError('未配置联机服务。请先在 net-config.js 填入 Upstash URL 与 Token。');
+        setError('未配置联机服务。请打开「联机服务设置」填入服务器地址，或开启「局域网联机」。');
         return null;
       }
       setError('创建房间失败：' + e.message);
@@ -294,6 +307,7 @@ async function createRoom(mode, difficulty) {
       session.view = REF.publicView(created, 0);
       setError('');
       startPolling();
+      startHeartbeat();
       emit('joined');
       return code;
     }
@@ -305,7 +319,7 @@ async function createRoom(mode, difficulty) {
 async function joinRoom(code) {
   const cfg = root.NET_CONFIG.getNetConfig();
   if (!cfg.ready) {
-    setError('未配置联机服务。请先在 net-config.js 填入 Upstash URL 与 Token。');
+    setError('未配置联机服务。请打开「联机服务设置」填入服务器地址，或开启「局域网联机」。');
     return null;
   }
   session.playerId = ensurePlayerId();
@@ -321,6 +335,9 @@ async function joinRoom(code) {
     const mine = draft.seats.findIndex((s) => s && s.id === session.playerId);
     if (mine >= 0) {
       draft.seats[mine].name = session.playerName;
+      draft.seats[mine].away = false;        // 回来了：交还座位，AI 不再代打
+      draft.seats[mine].aiTakeover = false;  // 同时清掉超时托管（断线重连视为重新接手）
+      draft.aiSeats = computeAiSeats(draft);
       joined = mine;
       return draft;
     }
@@ -348,6 +365,7 @@ async function joinRoom(code) {
   session.mySeat = joined ?? 0;
   setError('');
   startPolling();
+  startHeartbeat();
   emit('joined');
   return clean;
 }
@@ -358,12 +376,8 @@ async function reseatAI(code) {
     const seatCount = draft.mode === 'ddz' ? 3 : (draft.seatCount || 4);
     draft.seatCount = seatCount;
     const humans = draft.seats.map((s, i) => (s && i < seatCount ? i : -1)).filter((i) => i >= 0);
-    const aiSeats = [];
-    // 至少补到对应模式的参赛人数
-    for (let i = 0; i < seatCount; i++) {
-      if (!draft.seats[i]) aiSeats.push(i);
-    }
-    draft.aiSeats = aiSeats;
+    // 至少补到对应模式的参赛人数（空位 + 离席座位都由 AI 托管）
+    draft.aiSeats = computeAiSeats(draft);
     if (draft.mode === 'ddz') draft.settings.aiDifficulty = draft.settings.aiDifficulty || 'normal';
     draft.humanSeats = humans;
     return draft;
@@ -388,8 +402,7 @@ async function setMode(mode) {
     if (draft.phase !== 'lobby') return false;
     draft.mode = mode;
     draft.seatCount = mode === 'ddz' ? 3 : 4;
-    draft.aiSeats = Array.from({ length: draft.seatCount }, (_, i) => i)
-      .filter((i) => !draft.seats[i]);
+    draft.aiSeats = computeAiSeats(draft);
     if (mode === 'ddz') draft.settings.aiDifficulty = draft.settings.aiDifficulty || 'normal';
     return draft;
   });
@@ -405,9 +418,8 @@ async function startGame() {
     if (draft.phase !== 'lobby') return false;
     const seatCount = draft.mode === 'ddz' ? 3 : (draft.seatCount || 4);
     draft.seatCount = seatCount;
-    // 人数不足用 AI 补满参赛座位（以当前座位反推，避免重复叠加）
-    draft.aiSeats = Array.from({ length: seatCount }, (_, i) => i)
-      .filter((i) => !draft.seats[i]);
+    // 人数不足用 AI 补满参赛座位（空位 + 离席座位；避免重复叠加）
+    draft.aiSeats = computeAiSeats(draft);
     if (draft.aiSeats.length === seatCount) return false;   // 一个人都没有，别开局
     if (draft.mode === 'ddz') draft.settings.aiDifficulty = draft.settings.aiDifficulty || 'normal';
     REF.startRound(draft);
@@ -416,6 +428,7 @@ async function startGame() {
   if (room) {
     session.room = room;
     session.view = REF.publicView(room, session.mySeat);
+    session._timeoutSeat = -1; session._timeoutSince = 0; session._timeoutStrikes = {};
     emit('room');
     startPacedPump();
   }
@@ -443,8 +456,7 @@ async function nextRound() {
       draft.log = [];
     }
     const seatCount = draft.mode === 'ddz' ? 3 : (draft.seatCount || 4);
-    draft.aiSeats = Array.from({ length: seatCount }, (_, i) => i)
-      .filter((i) => !draft.seats[i]);
+    draft.aiSeats = computeAiSeats(draft);
     if (draft.mode === 'ddz') draft.settings.aiDifficulty = draft.settings.aiDifficulty || 'normal';
     REF.startRound(draft);
     return draft;
@@ -452,6 +464,7 @@ async function nextRound() {
   if (room) {
     session.room = room;
     session.view = REF.publicView(room, session.mySeat);
+    session._timeoutSeat = -1; session._timeoutSince = 0; session._timeoutStrikes = {};
     emit('room');
     startPacedPump();
   }
@@ -484,9 +497,9 @@ async function submitPass(cards) {
   });
 }
 
-async function submitBid(bid) {
+async function submitBid(action) {
   return sendAction((draft) => {
-    const res = REF.submitBid(draft, session.mySeat, bid);
+    const res = REF.submitBid(draft, session.mySeat, action);
     if (!res.ok) { setError(res.error); return false; }
     return true;
   });
@@ -527,6 +540,9 @@ async function sendAction(fn) {
   const mutate = (draft) => {
     const res = fn(draft);
     if (res === false) return false;
+    session._timeoutStrikes = session._timeoutStrikes || {};
+    session._timeoutStrikes[session.mySeat] = 0;   // 真人主动出牌 → 该座位超时计数清零
+    if (draft.seats[session.mySeat]) draft.seats[session.mySeat].aiTakeover = false; // 主动出牌即收回控制权
     return draft;
   };
 
@@ -622,6 +638,7 @@ function mergeRemoteSubmissions(srv, draft) {
         'highestBidder', 'landlord', 'turn', 'currentCombo', 'lastLeadSeat',
         'passCount', 'moveSeq', 'bombCount', 'hasRocket', 'roles',
         'lastPlay', 'lastAction', 'baseBid',
+        'bidStage', 'bidStarter', 'candidate', 'grabCount', 'grabActs', 'lastGrabber', 'callBid',
       ];
       for (const key of stateKeys) {
         if (Object.prototype.hasOwnProperty.call(srv, key)) {
@@ -643,14 +660,15 @@ function mergeRemoteSubmissions(srv, draft) {
                && draft.seats[i].id !== session.playerId) {
         // 别人离开了（服务器上是空的、而本地还留着非自己的座位）→ 清掉
         draft.seats[i] = null;
+      } else if (srv.seats[i] && draft.seats[i]) {
+        // away 以服务器为准（房主扫描 / 客人回归都写它），避免本地旧快照盖回去
+        draft.seats[i].away = !!srv.seats[i].away;
       }
     }
   }
-  // aiSeats 跟随座位表重算：有真人的座位绝不能同时算 AI
+  // aiSeats 跟随座位表重算：有真人且在席的座位绝不能算 AI（离席座位则保留代打）
   if (Array.isArray(srv.aiSeats)) {
-    const count = draft.mode === 'ddz' ? 3 : (draft.seatCount || 4);
-    draft.aiSeats = Array.from({ length: count }, (_, i) => i)
-      .filter((i) => !draft.seats[i]);
+    draft.aiSeats = computeAiSeats(draft);
   }
   return draft;
 }
@@ -671,6 +689,20 @@ const STEP_INTERVAL_MS = 900;
  * 叫分是「一锤子买卖」，错过就再也看不到了，必须留出读盘时间。 */
 const DDZ_BID_STEP_MS = 1500;
 
+/* 联机回合超时托管：当前该行动的真人 15s 内没回应 → 第一次自动"不出 / 出最小牌 /
+ * 不叫"，连续达 AUTO_TAKEOVER_AFTER 次（默认 2，即 30s 不回应）则直接 AI 托管
+ * （标 away，凭原 playerId 回来可再接管）。所有联机模式通用（红心大战 / 拱猪 /
+ * 斗地主的叫分与出牌），彻底解决"客人离开后房主卡在某人回合"的问题。
+ * 本地人机对战的同类逻辑在 app.js（HumanPlayer / waitForDdz 包裹 15s 计时）。
+ * 注意：房主自己的座位只自动代打、绝不标 away —— 房主没有"回归"通道（心跳扫描
+ * 会跳过房主），一旦被永久托管就再也交不回来。 */
+const TURN_TIMEOUT_MS = 15000;
+const AUTO_TAKEOVER_AFTER = 2;       // 同一真人座位连续超时达此次数 → AI 托管
+// 测试可用 window.TURN_TIMEOUT_MS 覆盖（懒读取，设了立即生效），避免真等 15s
+function turnTimeoutMs() {
+  return (typeof window !== 'undefined' && window.TURN_TIMEOUT_MS) || TURN_TIMEOUT_MS;
+}
+
 /**
  * 房主侧推进：**一次只走一步**（AI 一次出牌 / 一次提交）。
  *
@@ -682,6 +714,84 @@ const DDZ_BID_STEP_MS = 1500;
  */
 function pumpHostOnce(room) {
   return REF.stepAI(room);
+}
+
+/**
+ * 联机回合超时托管（房主侧）。
+ *
+ * 当前该行动的真人若超过 TURN_TIMEOUT_MS 仍无任何动作，就由房主代为行动：
+ *   · 第一次超时：`REF.forceTimeout` 自动"不出 / 出最小牌 / 不叫"，牌局继续推进；
+ *   · 连续超时达 AUTO_TAKEOVER_AFTER 次：把该座位标 away → 并入 aiSeats，
+ *     之后由 AI 代打，直到该玩家心跳恢复（scanPresence 清 away）交还。
+ *
+ * 房主自己的座位只自动代打、不标 away（房主无回归通道，标了就交不回来）。
+ * 返回 true 表示本拍已代为行动并写回服务器，调用方应 `continue` 重新判断。
+ */
+async function maybeTimeoutCurrentActor() {
+  const room = session.room;
+  if (!room || !session.isHost) return false;
+  if (['lobby', 'roundEnd', 'gameEnd'].includes(room.phase)) return false;
+
+  const seat = REF.currentActorSeat(room);
+  if (seat < 0) { session._timeoutSeat = -1; return false; }
+  const s = room.seats[seat];
+
+  // 当前不是真人（AI 补位 / 已 away 托管）→ 清掉计时器，不代打
+  if (!s || room.aiSeats.includes(seat)) {
+    if (room.turnDeadline) {
+      const d = JSON.parse(JSON.stringify(room));
+      d.turnDeadline = 0;
+      const w = await writeHostDraft(d);
+      if (w) { session.room = w; session.view = REF.publicView(w, session.mySeat); emit('room'); }
+    }
+    session._timeoutSeat = -1;
+    return false;
+  }
+
+  // 真人换座位 → 重新计时，并广播倒计时起点（让所有客户端都能显示计时器）
+  if (session._timeoutSeat !== seat) {
+    session._timeoutSeat = seat;
+    session._timeoutSince = Date.now();
+    session._timeoutStrikes = session._timeoutStrikes || {};
+    const d = JSON.parse(JSON.stringify(room));
+    d.turnDeadline = Date.now() + turnTimeoutMs();
+    const w = await writeHostDraft(d);
+    if (w) { session.room = w; session.view = REF.publicView(w, session.mySeat); emit('room'); }
+    return false;
+  }
+
+  const elapsed = Date.now() - (session._timeoutSince || 0);
+  if (elapsed < turnTimeoutMs()) return false;
+
+  // 触发一次超时 → 自动代打
+  const draft = JSON.parse(JSON.stringify(room));
+  if (!REF.forceTimeout(draft, seat)) {
+    session._timeoutSince = Date.now();       // 无可代打（理论不会发生）→ 重置，避免死循环
+    return false;
+  }
+  session._timeoutStrikes = session._timeoutStrikes || {};
+  session._timeoutStrikes[seat] = (session._timeoutStrikes[seat] || 0) + 1;
+  const isSelf = seat === session.mySeat;
+  const takeover = !isSelf && (session._timeoutStrikes[seat] || 0) >= AUTO_TAKEOVER_AFTER;
+  if (takeover && draft.seats[seat]) {
+    // 注意：用 aiTakeover 而非 away —— 该玩家只是"在线但没操作"，心跳仍在，
+    // 若标 away 会被 scanPresence 当成"人回来了"立刻交还，托管永远不成立。
+    draft.seats[seat].aiTakeover = true;      // AI 托管：之后由 AI 代打，本人主动出牌/收回才释放
+    draft.aiSeats = computeAiSeats(draft);
+    draft.turnDeadline = 0;
+    const nm = (draft.seats[seat].name) || '该玩家';
+    if (typeof showToast === 'function') showToast(`${nm} 超时未回应，已交由 AI 托管`, 'warn');
+  } else {
+    // 同一真人继续等：重置倒计时（避免一次性代打后计时器卡在过期态）
+    draft.turnDeadline = Date.now() + turnTimeoutMs();
+  }
+  const written = await writeHostDraft(draft);
+  session.room = written;
+  session.view = REF.publicView(written, session.mySeat);
+  emit('room');
+  if (takeover) { session._timeoutSeat = -1; session._timeoutStrikes[seat] = 0; }
+  session._timeoutSince = Date.now();
+  return true;
 }
 
 /**
@@ -702,6 +812,12 @@ function pumpHostOnce(room) {
 function startPacedPump() {
   if (!session.active || !session.isHost) return;
   if (session.pumpToken > 0) return;       // 已启动，常驻循环自己会继续
+  // 换局 / 重连：清空上一轮的超时托管计时，避免把旧座位的状态带进来
+  session._timeoutSeat = -1;
+  session._timeoutSince = 0;
+  // ⚠️ 不要在这里清空 _timeoutStrikes：startPacedPump 幂等、会被 updateRoom/轮询
+  // 频繁重入，一旦清空就会把「某座位已连续超时几次」的计数抹掉，导致永远到不了
+  // AUTO_TAKEOVER_AFTER（两轮超时托管）。计数只在 startGame / nextRound 真开局时清。
   session.pumpToken += 1;
   pacedLoop(session.pumpToken);
 }
@@ -714,6 +830,16 @@ function stopPacedPump() {
 async function pacedLoop(token) {
   while (session.active && token === session.pumpToken && session.isHost) {
     if (!session.room) { await sleep(200); continue; }
+
+    // 周期性扫一眼真人座位的心跳（离席 → AI 代打；回归 → 交还）
+    if (Date.now() - (session.lastPresenceScan || 0) >= pres().scanMs) {
+      session.lastPresenceScan = Date.now();
+      try { await scanPresence(); } catch (_) { /* 扫描失败下拍再来 */ }
+      if (!session.active || token !== session.pumpToken) return;
+    }
+
+    // 回合超时托管：当前真人 15s 无回应 → 自动代打 / 二次托管（见 maybeTimeoutCurrentActor）
+    if (await maybeTimeoutCurrentActor()) continue;
 
     // 用副本试探「还有没有 AI 要动」
     const probe = JSON.parse(JSON.stringify(session.room));
@@ -752,12 +878,153 @@ function startPolling() {
   loop(token);
 }
 
+/* ---------- 页面可见性 ----------
+ * 后台标签页是联机配额的**头号杀手**：一个忘关的游戏页会以约 2 次/秒
+ * 的频率一直读 Upstash，挂一晚上就是 5~7 万次读（占掉免费额度的一成多）。
+ * 页面不可见时轮询整体停摆（0 读），回到前台 500ms 内自动恢复。
+ * ⚠️ 本文件也会在 Node 下被 require（单测），必须做 typeof 保护。 */
+function docHidden() {
+  return typeof document !== 'undefined' && document.hidden === true;
+}
+const HIDDEN_TICK_MS = 500;
+
+/* ---------- 在线心跳与离席代打 ----------
+ * 客人关标签页 / 断网时不会发任何「我走了」的消息，房主会永远卡在 TA 的回合。
+ * 方案：每个真人玩家定期写心跳键（seen:<code>:<pid> = 时间戳，只读 GET/SET，
+ * 各后端都支持）；房主在节拍循环里定期扫描：心跳超时 → 座位标 away 并并入
+ * aiSeats 由 AI 代打；心跳恢复（TA 重新打开页面 / 回到前台）→ 清 away 交还。
+ *
+ * 配额账：前台 12s/次 ≈ 5 写/分钟/人，可忽略；后台标签页浏览器会再节流定时器。
+ * 测试可用 window.NET_PRESENCE 覆盖阈值（懒读取，设了立即生效）。 */
+// 阈值：心跳前台 10s / 后台 20s；离席判定 90s（必须 > 后台标签页被浏览器节流到的
+// ~60s，否则切到后台会被误判"离开"、AI 抢走座位）。正常关页走 pagehide 哨兵即时接管，
+// 崩溃/断网等脏掉线走这里的超时兜底。测试可用 window.NET_PRESENCE 覆盖。
+const PRESENCE_DEFAULTS = { hbVisibleMs: 10000, hbHiddenMs: 20000, awayAfterMs: 90000, scanMs: 6000 };
+function pres() {
+  return Object.assign({}, PRESENCE_DEFAULTS,
+    (typeof root !== 'undefined' && root.NET_PRESENCE) || {});
+}
+
+function beatPresence() {
+  if (!session.active || !session.code || !session.playerId) return;
+  session.lastBeatAt = Date.now();
+  CORE.upstash(['SET', CORE.seenKey(session.code, session.playerId), String(session.lastBeatAt)])
+    .catch(() => {}); // 心跳丢了就丢了，下一轮再补
+}
+
+function startHeartbeat() {
+  stopHeartbeat();
+  beatPresence();                       // 进房立刻打一次，房主下一拍就能看见
+  session.hbTimer = setInterval(() => {
+    if (!session.active) return;
+    const target = docHidden() ? pres().hbHiddenMs : pres().hbVisibleMs;
+    if (Date.now() - (session.lastBeatAt || 0) >= target) beatPresence();
+  }, Math.min(pres().hbVisibleMs, 6000)); // 基准 tick 小些，前后台切换响应快
+}
+
+function stopHeartbeat() {
+  if (session.hbTimer) { clearInterval(session.hbTimer); session.hbTimer = 0; }
+}
+
+/* 挂页即接管：关标签页 / 跳转到别的网址时，浏览器不会给我们发"我走了"的消息。
+ * 这里尽力（keepalive 请求可在 pagehide 中发出）把心跳键置成"显式离席"哨兵，
+ * 房主下一拍扫描立刻 AI 代打，不再需要等整整一个心跳超时（默认 90s）。
+ * 注意：仅是"最佳努力"，请求可能因页面已销毁而丢弃——脏掉线（崩溃 / 断网）
+ * 仍靠 scanPresence 的心跳超时兜底，两条通道互补。 */
+function installUnloadSignal() {
+  if (typeof window === 'undefined' || installUnloadSignal.done) return;
+  installUnloadSignal.done = true;
+  const fire = () => {
+    if (!session.active || !session.code || !session.playerId) return;
+    const k = CORE.seenKey(session.code, session.playerId);
+    CORE.upstash(['SET', k, '-1'], undefined, { keepalive: true }).catch(() => {});
+  };
+  window.addEventListener('pagehide', fire);
+  window.addEventListener('beforeunload', fire);
+}
+installUnloadSignal();
+
+/**
+ * 房主：扫描其他真人座位的心跳，维护离席/回归状态。
+ *   · 大厅里：掉线太久直接释放座位（没有牌局要续；TA 回来可重新入座）
+ *   · 牌局中：标 away 由 AI 代打（座位保留，凭原 playerId 回来接管）
+ *   · away 座位心跳恢复 → 清 away 交还
+ */
+async function scanPresence() {
+  if (!session.isHost || !session.room || !session.code) return;
+  const room = session.room;
+  const seatCount = room.mode === 'ddz' ? 3 : (room.seatCount || 4);
+  const inLobby = room.phase === 'lobby';
+  const now = Date.now();
+  const awayAfter = pres().awayAfterMs;
+  const changes = [];
+  for (let i = 0; i < seatCount; i++) {
+    const s = room.seats[i];
+    if (!s || s.id === session.playerId) continue;   // 空位与房主自己不查
+    let ts = 0;
+    try { ts = Number(await CORE.upstash(['GET', CORE.seenKey(room.code, s.id)])) || 0; }
+    catch (_) { continue; }                          // 读失败这轮跳过，别误标
+    /* 心跳键三态判定（修一个真 bug：主动退出把键 DEL 成 0 后，旧逻辑把
+       "ts=0 不 stale 且 s.away"误判成"人回来了"，立刻清掉 away → AI 停手 →
+       房主又被卡回客人回合。重写成显式状态机）：
+         ts < 0   显式离席哨兵（关页 pagehide / 主动退出置 -1）→ 立即接管，不等超时
+         ts === 0 从未心跳过（刚入座 / 旧客户端 / 已 DEL）→ 不碰 away：
+                  显式退出已在 updateRoom 里标了 away 不能清；新入座者 away 本为
+                  false，等首拍真实心跳确认即可（不会误判回归）
+         ts > 0   按"现在 - 上次心跳"判新鲜 / 过期：过期才接管，回归才交还 */
+    if (ts < 0) {
+      if (inLobby) changes.push({ i, kind: 'free' });
+      else if (!s.away) changes.push({ i, kind: 'away' });
+    } else if (ts > 0) {
+      const fresh = (now - ts) <= awayAfter;
+      if (inLobby) {
+        if (!fresh) changes.push({ i, kind: 'free' });
+      } else if (!fresh && !s.away) {
+        changes.push({ i, kind: 'away' });
+      } else if (fresh && s.away) {
+        changes.push({ i, kind: 'back' });
+      }
+    }
+  }
+  if (!changes.length) return;
+  const written = await CORE.updateRoom(room.code, (draft) => {
+    for (const c of changes) {
+      if (c.kind === 'free') draft.seats[c.i] = null;
+      else if (draft.seats[c.i]) draft.seats[c.i].away = (c.kind === 'away');
+    }
+    draft.aiSeats = computeAiSeats(draft);
+    draft.humanSeats = draft.seats.map((s, i) => (s && i < seatCount ? i : -1)).filter((i) => i >= 0);
+    return draft;
+  });
+  if (written) {
+    session.room = written;
+    session.view = REF.publicView(written, session.mySeat);
+    emit('room');
+    // 被托管者心跳恢复 → 交还：在本端（房主）提示一声
+    for (const c of changes) {
+      if (c.kind === 'back') {
+        const nm = (written.seats[c.i] && written.seats[c.i].name) || '该玩家';
+        if (typeof showToast === 'function') showToast(`${nm} 已回到牌桌，AI 已交还`, 'ok');
+      }
+    }
+  }
+}
+
 async function loop(token) {
   while (session.active && token === session.pollToken) {
+    // 后台：只打盹，不发任何请求。醒来后立刻继续下面的正常轮询。
+    while (docHidden() && session.active && token === session.pollToken) {
+      await sleep(HIDDEN_TICK_MS);
+    }
+    if (!session.active || token !== session.pollToken) return;
+
     let knownV = session.room ? session.room.v : -1;
     let res;
     try {
-      res = await CORE.pollRoom(session.code, knownV, 9000);
+      // 还没开局（大厅等人）时走慢档：这时候没有任何节拍在推进，
+      // 晚 1~3 秒看到有人进房完全无感，却能省下大半的读次数。
+      const inLobby = !!session.room && session.room.phase === 'lobby';
+      res = await CORE.pollRoom(session.code, knownV, 9000, { slow: inLobby });
     } catch (e) {
       if (e.code === 'NET_NOT_CONFIGURED') { setError('联机服务未配置'); }
       await sleep(2000);
@@ -786,6 +1053,19 @@ async function loop(token) {
         // 注意传的是「上一帧权威快照」而不是「玩家看到的帧」：
         // 队列内部自己维护显示水位，这里只负责把新出现的牌塞进队列。
         enqueuePlayback(prev, res.room, session.mySeat);
+
+        // 自己座位被房主接管 / 交还：在本端弹提示（房主端由 maybeTimeoutCurrentActor 提示）
+        if (!session.isHost && session.mySeat >= 0) {
+          const taken = (s) => !!(s && (s.away || s.aiTakeover));
+          const prevTaken = taken(prev && prev.seats && prev.seats[session.mySeat]);
+          const nowSeat = res.room.seats && res.room.seats[session.mySeat];
+          const nowTaken = taken(nowSeat);
+          if (prevTaken !== nowTaken) {
+            if (nowTaken && typeof showToast === 'function') showToast('你超时未回应，已交由 AI 托管', 'warn');
+            else if (!nowTaken && typeof showToast === 'function') showToast('你已回到牌桌，AI 已交还给你', 'ok');
+          }
+        }
+
         emit('room');
       }
 
@@ -808,6 +1088,8 @@ async function leaveRoom() {
   stopDrain();                 // 并停掉补播队列的定时器
   session.playback = null;
 
+  stopHeartbeat();               // 人走了，心跳也停
+
   try {
     if (code) {
       if (wasHost) {
@@ -815,14 +1097,22 @@ async function leaveRoom() {
       } else {
         await CORE.updateRoom(code, (draft) => {
           const idx = draft.seats.findIndex((s) => s && s.id === pid);
-          if (idx >= 0) draft.seats[idx] = null;
-          const count = draft.mode === 'ddz' ? 3 : (draft.seatCount || 4);
-          draft.aiSeats = Array.from({ length: count }, (_, i) => i)
-            .filter((i) => !draft.seats[i]);
-          if (draft.phase !== 'lobby') draft.phase = 'lobby';
+          if (idx < 0) return draft;
+          if (draft.phase === 'lobby') {
+            // 还在大厅：直接让座，座位留给下一个人
+            draft.seats[idx] = null;
+          } else {
+            // 对局进行中：座位保留（手牌不能丢），标记离席 → AI 代打，
+            // 之后同一玩家重连可以坐回来继续打。
+            draft.seats[idx].away = true;
+          }
+          draft.aiSeats = computeAiSeats(draft);
           return draft;
         });
       }
+      // 顺手把心跳键置为"显式离席"哨兵（-1），房主下一拍扫描立即接管、
+      // 且不会被 scanPresence 误判成"回归"。updateRoom 里也已标了 away 双保险。
+      try { await CORE.upstash(['SET', CORE.seenKey(code, pid), '-1']); } catch (_) { /* 无碍 */ }
     }
   } catch (_) { /* 网络失败也允许本地退出 */ }
 
@@ -832,6 +1122,30 @@ async function leaveRoom() {
   session.mySeat = -1;
   session.isHost = false;
   emit('left');
+}
+
+/**
+ * 撤销 AI 托管：被托管的玩家（自己座位 away）点击「收回控制权」时调用。
+ * 直接把自己的座位 away 清掉并立即打一次心跳 —— 房主下一拍就不会再把
+ * 刚交还的座位判成 away（本人在场、心跳是新鲜的）。
+ */
+async function reclaimSeat() {
+  if (!session.active || session.isHost || !session.room || !session.code) return;
+  const idx = session.mySeat;
+  if (idx < 0) return;
+  try {
+    const room = await CORE.updateRoom(session.code, (draft) => {
+      if (draft.seats[idx]) { draft.seats[idx].away = false; draft.seats[idx].aiTakeover = false; }
+      draft.aiSeats = computeAiSeats(draft);
+      return draft;
+    });
+    if (room) {
+      session.room = room;
+      session.view = REF.publicView(room, session.mySeat);
+      emit('room');
+    }
+    beatPresence();          // 立刻心跳，稳住"人在场"的状态
+  } catch (_) { /* 网络失败下次心跳/扫描再兜 */ }
 }
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -893,14 +1207,14 @@ function myLegalCards() {
 const NET_CLIENT = {
   session, subscribe,
   setPlayerName, ensurePlayerId,
-  createRoom, joinRoom, leaveRoom, reseatAI,
+  createRoom, joinRoom, leaveRoom, reseatAI, reclaimSeat,
   updateSettings, setMode, startGame, nextRound,
   submitSell, submitPass, submitBid, playCards, passPlay, playCard,
   isActive, getView, getRoom, getMySeat, amHost, isMyTurn, isMyBidTurn,
   myLegalCards, myLegalPlays,
   setError,
   // 调试 / 测试用：节拍推进相关
-  startPacedPump, STEP_INTERVAL_MS,
+  startPacedPump, STEP_INTERVAL_MS, TURN_TIMEOUT_MS, AUTO_TAKEOVER_AFTER,
   // 调试 / 测试用：补播队列相关
   currentView, trickCursor, intermediateFrames, PLAYBACK_MS,
 };

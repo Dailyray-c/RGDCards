@@ -54,6 +54,41 @@ function fromStorage() {
   } catch (_) { return null; }
 }
 
+/* ==== 局域网联机（方案 A 原型）====
+ * 房主在「局域网联机」开关打开后，联机配置改为指向本机起的
+ * lan-server.js（同源 URL），不再依赖云端 Upstash。
+ * 覆盖位只存在内存 + 本机 localStorage 的 ncm.lan，
+ * 不会污染云端凭据（ncm.net），也不会把房主误判成受邀者。 */
+const LAN_KEY = 'ncm.lan';
+let LAN_OVERRIDE = null;
+
+function _rehydrateLan() {
+  try {
+    const raw = localStorage.getItem(LAN_KEY);
+    if (raw) {
+      const o = JSON.parse(raw);
+      if (o && o.on && o.url) {
+        LAN_OVERRIDE = { url: String(o.url).replace(/\/+$/, ''), token: 'lan', prefix: 'ncm:' };
+      }
+    }
+  } catch (_) { /* 无痕模式忽略 */ }
+}
+_rehydrateLan();
+
+/** 开/关局域网联机。开启时 url 默认传 location.origin。 */
+function setLanMode(on, url) {
+  if (on && url) {
+    LAN_OVERRIDE = { url: String(url).replace(/\/+$/, ''), token: 'lan', prefix: 'ncm:' };
+    try { localStorage.setItem(LAN_KEY, JSON.stringify({ on: true, url: LAN_OVERRIDE.url })); } catch (_) {}
+  } else {
+    LAN_OVERRIDE = null;
+    try { localStorage.removeItem(LAN_KEY); } catch (_) {}
+  }
+}
+
+function isLanOn() { return !!LAN_OVERRIDE; }
+function lanUrl() { return LAN_OVERRIDE ? LAN_OVERRIDE.url : ''; }
+
 /**
  * 读取当前生效的联机配置。
  *
@@ -74,6 +109,17 @@ function getNetConfig() {
       prefix: invite.prefix || 'ncm:',
       ready: true,
       invited: true,
+    };
+  }
+  // 局域网联机：房主开了开关，指向本机 lan-server.js（同源），token 用占位 'lan'。
+  if (LAN_OVERRIDE && LAN_OVERRIDE.url && LAN_OVERRIDE.token) {
+    return {
+      url: LAN_OVERRIDE.url,
+      token: LAN_OVERRIDE.token,
+      prefix: LAN_OVERRIDE.prefix,
+      ready: true,
+      lan: true,
+      invited: false,
     };
   }
   const stored = fromStorage() || {};
@@ -101,11 +147,11 @@ function setNetConfig(cfg) {
 /** 给界面用的一句话状态说明 */
 function netStatusText() {
   const c = getNetConfig();
-  if (c.ready) return '联机服务已就绪';
-  return '未配置联机服务：请在 net-config.js 填入 Upstash REST URL 与 Token';
+  if (c.ready) return c.lan ? '局域网联机：本机同步服务已就绪' : '联机服务已就绪';
+  return '未配置联机服务：请在 net-config.js 填入 Upstash REST URL 与 Token（或开启局域网联机）';
 }
 
-const NET_CONFIG = { getNetConfig, setNetConfig, netStatusText, LS_KEY, CONFIG };
+const NET_CONFIG = { getNetConfig, setNetConfig, netStatusText, isLanOn, setLanMode, lanUrl, LS_KEY, CONFIG };
 
 if (typeof module !== 'undefined' && module.exports) module.exports = NET_CONFIG;
 if (root && typeof window !== 'undefined') root.NET_CONFIG = NET_CONFIG;

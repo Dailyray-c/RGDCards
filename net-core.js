@@ -27,9 +27,11 @@ const CODE_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; // 去掉易混的 I O
 /**
  * 调一次 Upstash REST。
  * @param {string[]} cmd Redis 命令数组，如 ["GET", "k"]
+ * @param {object} [opts] 额外选项：{ keepalive: true } 用于 pagehide 等
+ *        页面即将卸载、普通 await 拿不到响应时的"最佳努力"请求。
  * @returns {Promise<any>} result 字段
  */
-async function upstash(cmd, cfg) {
+async function upstash(cmd, cfg, opts) {
   const c = cfg || NET_CONFIG.getNetConfig();
   if (!c.ready) {
     const err = new Error('NET_NOT_CONFIGURED');
@@ -43,6 +45,7 @@ async function upstash(cmd, cfg) {
       'Content-Type': 'application/json',
     },
     body: JSON.stringify(cmd),
+    keepalive: !!(opts && opts.keepalive),
   });
   if (!res.ok) {
     const text = await res.text().catch(() => '');
@@ -60,6 +63,9 @@ async function upstash(cmd, cfg) {
 }
 
 const roomKey = (code) => NET_CONFIG.getNetConfig().prefix + 'room:' + code;
+/** 在线心跳键：每个真人玩家定期写自己的时间戳，房主据此判断「谁掉线了」。
+ *  键不带 TTL —— 用值里的时间戳判活，避免依赖各后端对 EX 参数的支持差异。 */
+const seenKey = (code, playerId) => NET_CONFIG.getNetConfig().prefix + 'seen:' + code + ':' + playerId;
 
 /* ---------- Lua 脚本（原子 CAS 写入） ---------- */
 
@@ -157,34 +163,56 @@ async function deleteRoom(code) {
  * @param {number} timeoutMs
  * @returns {Promise<{changed:boolean, room:object|null}>}
  */
+/** 轮询的两种档位。见 pollRoom 的说明。 */
+const POLL_FAST = { start: 180, cap: 1500, growth: 1.5 };
+const POLL_SLOW = { start: 1000, cap: 3000, growth: 1.5 };
+
 /**
  * 轮询房间直到版本号变化。
  *
- * 退避策略：**固定 180ms 起步、上限 600ms**。
+ * 退避策略：**每次检测到变化后都从 start 重新起步**，所以只要牌局在推进
+ * （房主的 AI 节拍每 ~900ms 写一次），轮询就一直停在 180~400ms 这一档，
+ * 每一次状态变化都能被及时看到 —— 不会出现「没看见对方出牌就过墩了」。
  *
- * 这里刻意不用大退避：房主的 AI 节拍每 ~700ms 写一次，如果轮询间隔比它慢，
- * 就会连续漏掉中间版本 —— 玩家看到的是「牌一下子多了两张」「没看见对方出牌
- * 就过墩了」。宁可多花一点请求，也要保证每一次状态变化都被看到。
+ * 只有**真的没事发生**（大厅等人、等真人出牌）时才会一路退避到 cap。
+ * 也就是说，大退避影响的只是"从静止到第一次变化"的最坏延迟（≤ cap），
+ * 而不会让进行中的牌局变卡。这是省 Upstash 读次数的主要手段：
+ * 静止时从 ~2.0 次/秒 降到 ~1.1 次/秒（大厅档 ~0.35 次/秒）。
+ *
+ * @param {string} code
+ * @param {number} knownV
+ * @param {number} timeoutMs
+ * @param {{slow?:boolean}} [opts] slow=true 走大厅慢档（房间还没开局时）
  */
-async function pollRoom(code, knownV, timeoutMs = 9000) {
+async function pollRoom(code, knownV, timeoutMs = 9000, opts) {
+  const cfg = (opts && opts.slow) ? POLL_SLOW : POLL_FAST;
   const deadline = Date.now() + timeoutMs;
-  let delay = 180;
+  let delay = cfg.start;
   while (Date.now() < deadline) {
     let room = null;
+    let readFailed = false;
     try { room = await readRoom(code); } catch (e) {
       if (e.code === 'NET_NOT_CONFIGURED') throw e;
-      room = null;
+      // ⚠️ 瞬时网络错误绝不能当成「房间被删」—— Wi-Fi 抖一下就踢人出局，
+      //    曾让玩家在正常对局中莫名掉线。读失败只退避重试，到点按「无变化」返回。
+      readFailed = true;
     }
+    if (readFailed) {
+      await new Promise((r) => setTimeout(r, delay));
+      delay = Math.min(cfg.cap, Math.round(delay * cfg.growth));
+      continue;
+    }
+    // 只有「成功读到、但键不存在」才算房间真的没了（房主解散 / 过期）
     if (!room) return { changed: true, room: null };
     if (room.v !== knownV) return { changed: true, room };
     await new Promise((r) => setTimeout(r, delay));
-    delay = Math.min(600, Math.round(delay * 1.25));
+    delay = Math.min(cfg.cap, Math.round(delay * cfg.growth));
   }
   return { changed: false, room: null };
 }
 
 const NET_CORE = {
-  upstash, roomKey, readRoom, createRoom, updateRoom, deleteRoom, pollRoom,
+  upstash, roomKey, seenKey, readRoom, createRoom, updateRoom, deleteRoom, pollRoom,
   randomCode, CODE_LEN, CODE_ALPHABET, ROOM_TTL,
 };
 
