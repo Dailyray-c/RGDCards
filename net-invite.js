@@ -54,7 +54,7 @@ const HASH_KEY = 'join';
 function decodeV2(kv) {
   const parts = kv.split('~');
   if (parts.length < 4) return null;
-  const u = parts[1], t = parts[2], c = parts[3], p = parts[4];
+  const u = parts[1], t = parts[2], c = parts[3], p = parts[4], m = parts[5];
   if (!u || !t || !c) return null;
   return {
     // 编码时剥掉了 https://，这里补回；显式带 scheme 的（如 http://）原样保留
@@ -62,6 +62,9 @@ function decodeV2(kv) {
     token: t,
     prefix: p || 'ncm:',
     code: c,
+    // 玩法（可选，2026-09-28 起随链接携带，用来在进房前就亮出对应的主题色）。
+    // 只认合法值 —— 老链接没有这段，字段缺失时调用方自己兜底。
+    mode: (m === 'hearts' || m === 'gongzhu' || m === 'ddz') ? m : undefined,
   };
 }
 
@@ -80,7 +83,8 @@ function decodeV1(kv) {
     return null;
   }
   if (!obj || !obj.u || !obj.t || !obj.c) return null;
-  return { url: obj.u, token: obj.t, prefix: obj.p || 'ncm:', code: obj.c };
+  return { url: obj.u, token: obj.t, prefix: obj.p || 'ncm:', code: obj.c,
+    mode: (obj.m === 'hearts' || obj.m === 'gongzhu' || obj.m === 'ddz') ? obj.m : undefined };
 }
 
 /**
@@ -107,6 +111,7 @@ function encodeV1(payload) {
     t: payload.token,
     p: payload.prefix || 'ncm:',
     c: payload.code,
+    m: payload.mode || undefined,
   });
   const bytes = new TextEncoder().encode(json);
   let bin = '';
@@ -114,23 +119,30 @@ function encodeV1(payload) {
   return '#' + HASH_KEY + '=' + btoa(bin).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
 }
 
-/** 把 {url, token, prefix, code} 编成 `#join=2~...`（紧凑格式） */
+/**
+ * 把 {url, token, prefix, code[, mode]} 编成 `#join=2~...`（紧凑格式）。
+ * ⚠️ mode 是第 6 段，且**只在 prefix 也写出时才追加** —— 这是位置编码的兼容约束：
+ *    老客户端按位置取 prefix（第 5 段），若 mode 顶掉了 prefix 的位置，
+ *    老客户端会把 'ddz' 误读成 prefix，扫码直接配置错乱。
+ */
 function encodeInvite(payload) {
   const url = String(payload.url == null ? '' : payload.url);
   const token = String(payload.token == null ? '' : payload.token);
   const code = String(payload.code == null ? '' : payload.code);
   const prefix = payload.prefix || 'ncm:';
+  const mode = payload.mode || '';
 
   // 守卫：任一字段含分隔符 `~` 时，紧凑格式会产生歧义 → 退回 base64 旧格式。
   if (url.indexOf('~') >= 0 || token.indexOf('~') >= 0
       || code.indexOf('~') >= 0 || prefix.indexOf('~') >= 0) {
-    return encodeV1({ url, token, prefix, code });
+    return encodeV1({ url, token, prefix, code, mode });
   }
 
   // https:// 最常见，剥掉不存（解码时补回），换来的字节数直接降低二维码版本
   const bare = url.replace(/^https:\/\//, '');
   const parts = ['2', bare, token, code];
-  if (prefix !== 'ncm:') parts.push(prefix);
+  if (prefix !== 'ncm:' || mode) parts.push(prefix);
+  if (mode) parts.push(mode);
   return '#' + HASH_KEY + '=' + parts.join('~');
 }
 
@@ -138,7 +150,7 @@ function encodeInvite(payload) {
 
 /**
  * 生成完整邀请链接。
- * @param {{url:string, token:string, prefix?:string, code:string}} payload
+ * @param {{url:string, token:string, prefix?:string, code:string, mode?:string}} payload
  * @returns {string} 形如 https://host/path#join=xxxx
  */
 function buildLink(payload) {

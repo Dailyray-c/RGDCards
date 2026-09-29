@@ -525,6 +525,15 @@ function bidEstimate(hand) {
 /* 各难度「手软」概率：有牌能压时也可能选择不出，给新手留出破绽。 */
 const SLOPPY = { easy: 0.3, normal: 0.12, hard: 0 };
 
+/* 残局里（手上 ≤3 张）不再手软：入门档也该认真收官，
+   否则玩家看到的是「AI 只剩 2 张却一直不出」。 */
+const SLOPPY_MIN_HAND = 4;
+
+/* 收官奖励：这一手打出去就轮到自己领出，且剩下的牌还能凑成「一手」——
+   下一轮直接走完。手数模型算不出这件事（拆对子后手数 1 → 1，看起来像白亏一轮），
+   不补这一条的话 AI 会握着 AA 眼睁睁放过一张 8。 */
+const CLOSING_BONUS = 45;
+
 /* 顺子类牌型的搜索规格：need=每个点数取几张，min=最短长度 */
 const SEQ_SPECS = [
   { need: 1, min: 5, rank: 14, type: 'straight' },
@@ -838,12 +847,16 @@ function chooseFollow(ctx, plays) {
 
   let best = null, bestScore = -Infinity;
   for (const p of plays) {
-    // 炸弹只在「必须打」或对方也是炸弹时才用
-    if (isBombLike(p) && !(ctx.threat && (ctx.prevIsBomb || ctx.handLen <= 4))) continue;
     const rest = removeCards(ctx.hand, p.cards);
-    const after = estimateHands(countByValue(rest));
     if (!rest.length) return p;                    // 这一手打完就赢了
-    const s = followScore(ctx, p, after);
+    const after = estimateHands(countByValue(rest));
+    // 收官：打完这手自己领出，剩下的牌还是「一手」→ 下一轮直接走完。
+    // ⚠️ 手数模型在这里是反的：拆对子（AA → 出 A、留 A）手数仍是 1 → 1，
+    //    模型判定「白亏一轮」而拒不出牌。剩 2 张时明明出一张就赢，AI 却一直「不出」。
+    const closing = after <= 1;
+    // 炸弹只在「必须打」或对方也是炸弹时才用；能收官是例外（打完就赢）
+    if (isBombLike(p) && !closing && !(ctx.threat && (ctx.prevIsBomb || ctx.handLen <= 4))) continue;
+    const s = followScore(ctx, p, after) + (closing ? CLOSING_BONUS : 0);
     if (s > bestScore) { bestScore = s; best = p; }
   }
   if (!best) return null;
@@ -876,12 +889,32 @@ function playAI(hand, previous, options) {
   const plays = enumeratePlays(hand, previous);
   if (!plays.length) return [];
   const sloppy = opts.sloppy != null ? Number(opts.sloppy) : (SLOPPY[opts.difficulty] || 0);
-  if (sloppy > 0 && rnd() < sloppy) return [];
+  // ⚠️ 只剩几张牌时不再犯这种错：残局「随手放过」在玩家眼里就是 AI 卡住不出牌。
+  if (sloppy > 0 && hand.length >= SLOPPY_MIN_HAND && rnd() < sloppy) return [];
 
   const ctx = buildPlayContext(opts, hand, previous);
   const pick = chooseFollow(ctx, plays);
   if (!pick) return [];
   return opts.returnPlay ? pick : pick.cards.slice();
+}
+
+/* 明牌门槛（地主拿到底牌后，可以亮出全部手牌换本局 ×2）。
+ * 门槛用 bidEstimate 定，取值参考 _probe_ddz_ming.js 的实测分档：
+ *   高手 est ≥ 2.45 → 约 20% 的局会明牌，这批牌实测胜率 68%（基准 55%）
+ *   熟练 est ≥ 2.6  → 约 17%，胜率 56%（基准 48%）
+ *   入门 est ≥ 5.4  → 约 10%，只有拿到王炸/多个炸弹才敢亮（入门档不该轻易加倍）
+ * ⚠️ est 在 [2.8, 5.4) 是空洞（见叫分那节的分布说明），门槛落进空洞等于白设。 */
+const MING_THRESHOLD = { easy: 5.4, normal: 2.6, hard: 2.45 };
+
+/**
+ * 地主 AI 要不要明牌。明牌是「用信息换倍数」：亮出全部手牌 → 本局输赢 ×2。
+ * 只有牌力明显超出平均时才划算（实测门槛内的牌胜率要比基准高 10 个百分点以上）。
+ */
+function mingpaiAI(hand, options) {
+  const opts = options || {};
+  const th = MING_THRESHOLD[opts.difficulty] != null
+    ? MING_THRESHOLD[opts.difficulty] : MING_THRESHOLD.normal;
+  return bidEstimate(hand) >= th;
 }
 
 function scoreRound(baseBid, landlordWin, bombCount, rocket) {
@@ -899,9 +932,11 @@ function scoreRound(baseBid, landlordWin, bombCount, rocket) {
   const grabs = Math.max(0, Number(input.grabs) || 0);  // 抢地主次数，每次 ×2
   const spring = !!input.spring;           // 春天：地主赢且农民全程一张未出
   const antiSpring = !!input.antiSpring;   // 反春天：农民赢且地主只首引一手
+  const mingpai = !!input.mingpai;         // 明牌：地主开局亮出全部手牌，×2
   let multiplier = Math.pow(2, bombs + (hasRocket ? 1 : 0) + grabs);
   if (spring) multiplier *= 2;
   if (antiSpring) multiplier *= 2;
+  if (mingpai) multiplier *= 2;
   const unit = bid * multiplier;
   let landlordDelta;
   let farmerDelta;
@@ -919,6 +954,7 @@ function scoreRound(baseBid, landlordWin, bombCount, rocket) {
     grabs,
     spring,
     antiSpring,
+    mingpai,
     multiplier,
     unit,
     landlordWin: input.landlordWin === true || input.winner === 'landlord',
@@ -940,6 +976,7 @@ const DDZ = {
   classifyPlay, canBeat, isLegalPlay, enumeratePlays,
   bidAI, chooseBid: bidAI, callBidAI: bidAI,
   callLandlordAI, grabLandlordAI, bidEstimate, handProfile,
+  mingpaiAI, mingpaiThreshold: MING_THRESHOLD,
   playAI, choosePlay: playAI,
   scoreRound, isGameOver
 };

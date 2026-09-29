@@ -45,9 +45,44 @@ let nameSyncTimer = 0;   // 昵称写回房间的防抖句柄（见 setPlayerNam
  *     aiTakeover 由回合超时托管设置、心跳恢复也不会清（人一直都在，只是没动），
  *     只能由本人主动出牌或点「收回控制权」释放。两者任一为真都算 AI 代打。 */
 function computeAiSeats(draft) {
-  const count = draft.mode === 'ddz' ? 3 : (draft.seatCount || 4);
+  const count = REF.seatCountOf(draft);
   return Array.from({ length: count }, (_, i) => i)
     .filter((i) => !draft.seats[i] || draft.seats[i].away || draft.seats[i].aiTakeover);
+}
+
+/** 已入座玩家里最靠后的座位号（-1 = 没人） */
+function highestOccupied(draft) {
+  let hi = -1;
+  (draft.seats || []).forEach((s, i) => { if (s) hi = i; });
+  return hi;
+}
+
+/**
+ * 改变房间座位数，并把所有「按座位定长」的数组一起对齐。
+ * ⚠️ 只改 seatCount 不改数组是最典型的坑：多出来的座位读出来是 undefined，
+ *    少掉的座位数据会僵在数组尾部，两端表现都是莫名其妙的越界/错位。
+ */
+function applySeatCount(draft, n) {
+  const next = REF.clampSeatCount(n);
+  draft.seatCount = next;
+  draft.seats = REF.fitSeatArray(draft.seats, next, null);
+  draft.hands = REF.fitSeatArray(draft.hands, next, () => []);
+  draft.scores = REF.fitSeatArray(draft.scores, next, 0);
+  draft.collected = REF.fitSeatArray(draft.collected, next, 0);
+  draft.collectedCards = REF.fitSeatArray(draft.collectedCards, next, () => []);
+  draft.selectedPass = REF.fitSeatArray(draft.selectedPass, next, null);
+  draft.selectedSell = REF.fitSeatArray(draft.selectedSell, next, null);
+  if (Array.isArray(draft.bids)) draft.bids = REF.fitSeatArray(draft.bids, next, null);
+  if (Array.isArray(draft.grabActs)) draft.grabActs = REF.fitSeatArray(draft.grabActs, next, null);
+  // 缩容后越界的 AI 托管 / 主持人必须清掉，否则会指向不存在的座位
+  draft.aiSeats = (draft.aiSeats || []).filter((s) => s < next);
+  if (draft.werewolf) {
+    draft.werewolf.roles = REF.fitSeatArray(draft.werewolf.roles, next, null);
+    draft.werewolf.alive = REF.fitSeatArray(draft.werewolf.alive, next, true);
+    draft.werewolf.revealed = REF.fitSeatArray(draft.werewolf.revealed, next, false);
+    if (draft.werewolf.moderatorSeat >= next) draft.werewolf.moderatorSeat = -1;
+  }
+  return draft;
 }
 
 /* ---------- 玩家标识 ---------- */
@@ -268,7 +303,7 @@ function currentView() {
  * @param {string} [difficulty] 主页选中的 AI 难度，写进 settings.aiDifficulty ——
  *        托管席位（含 AI 占位）的叫分上限与出牌强度都读它。
  */
-async function createRoom(mode, difficulty) {
+async function createRoom(mode, difficulty, seatCount) {
   const cfg = root.NET_CONFIG.getNetConfig();
   if (!cfg.ready) {
     setError('未配置联机服务。请打开「联机服务设置」填入服务器地址，或开启「局域网联机」。');
@@ -281,10 +316,14 @@ async function createRoom(mode, difficulty) {
     const room = REF.makeRoom(code, {
       mode: mode || 'gongzhu',
       hostId: session.playerId,
+      // 座位数：不传就按玩法默认（斗地主 3 / 狼人杀 9 / 其余 4），上限 12
+      seatCount: seatCount != null ? seatCount : undefined,
     });
     room.seats[0] = { id: session.playerId, name: session.playerName, ready: true };
-    // 建房时就把其余空位标成 AI 托管，大厅里立刻能看出「差几个人」
-    room.aiSeats = computeAiSeats(room);
+    // 建房时就把其余空位标成 AI 托管，大厅里立刻能看出「差几个人」。
+    // ⚠️ 狼人杀例外：它从不补 AI（真人对话玩法），大厅里摆一排「AI 托管」
+    //    纯属误导 —— 玩家会以为点开始就能和 AI 玩。
+    room.aiSeats = (room.mode === 'werewolf') ? [] : computeAiSeats(room);
     if (room.mode === 'ddz') {
       room.settings.aiDifficulty = difficulty || room.settings.aiDifficulty || 'normal';
     }
@@ -400,9 +439,18 @@ async function setMode(mode) {
   if (!session.isHost) return null;
   const room = await CORE.updateRoom(session.code, (draft) => {
     if (draft.phase !== 'lobby') return false;
+    const want = REF.defaultSeatCount(mode);
+    // 缩容会挤掉已入座的玩家 —— 直接拒绝，请他们先离开
+    if (want <= highestOccupied(draft)) return false;
     draft.mode = mode;
-    draft.seatCount = mode === 'ddz' ? 3 : 4;
-    draft.aiSeats = computeAiSeats(draft);
+    applySeatCount(draft, want);
+    // 狼人杀不补 AI：它是真人对话玩法，AI 不会发言也看不懂私密频道
+    if (mode === 'werewolf') {
+      draft.aiSeats = [];
+      if (!draft.werewolf) draft.werewolf = REF.makeWerewolf(draft);
+    } else {
+      draft.aiSeats = computeAiSeats(draft);
+    }
     if (mode === 'ddz') draft.settings.aiDifficulty = draft.settings.aiDifficulty || 'normal';
     return draft;
   });
@@ -419,8 +467,15 @@ async function startGame() {
     const seatCount = draft.mode === 'ddz' ? 3 : (draft.seatCount || 4);
     draft.seatCount = seatCount;
     // 人数不足用 AI 补满参赛座位（空位 + 离席座位；避免重复叠加）
-    draft.aiSeats = computeAiSeats(draft);
-    if (draft.aiSeats.length === seatCount) return false;   // 一个人都没有，别开局
+    // ⚠️ 狼人杀例外：空位一律不补 AI（AI 不会发言，补了只会占着座位卡流程），
+    //    但至少要有 2 位真人（1 主持 + 1 玩家）才有意义。
+    if (draft.mode === 'werewolf') {
+      draft.aiSeats = [];
+      if ((draft.seats || []).filter(Boolean).length < 2) return false;
+    } else {
+      draft.aiSeats = computeAiSeats(draft);
+      if (draft.aiSeats.length === seatCount) return false;   // 一个人都没有，别开局
+    }
     if (draft.mode === 'ddz') draft.settings.aiDifficulty = draft.settings.aiDifficulty || 'normal';
     REF.startRound(draft);
     return draft;   // 只发牌进阶段，AI 的亮牌/传牌交给节拍循环逐步推进
@@ -521,6 +576,203 @@ async function passPlay() {
   });
 }
 
+/** 明牌（斗地主）：地主收下底牌后决定亮不亮全部手牌。 */
+async function submitMing(on) {
+  return sendAction((draft) => {
+    const res = REF.submitMing(draft, session.mySeat, on);
+    if (!res.ok) { setError(res.error); return false; }
+    return true;
+  });
+}
+
+/* ---------- 狼人杀（联机对话模式） ----------
+ *
+ * 与牌局不同：没有出牌动作，只有「配置 / 发言 / 主持」三类写操作。
+ * 所有可见性裁剪都在 REF.publicView 里做，这里只管提交。
+ */
+
+/**
+ * 房主改房间人数（2~12）。狼人杀需要 8~12 人，牌类固定 4（斗地主 3）。
+ * ⚠️ 只允许在大厅阶段改；且不能缩到把已入座的玩家挤掉。
+ */
+async function setSeatCount(n) {
+  if (!session.active || !session.isHost) return { ok: false, error: '只有房主能改人数' };
+  let result = { ok: false, error: '提交失败' };
+  const room = await CORE.updateRoom(session.code, (draft) => {
+    if (draft.phase !== 'lobby') { result = { ok: false, error: '对局已开始，不能改人数' }; return false; }
+    const want = REF.clampSeatCount(n);
+    const hi = highestOccupied(draft);
+    if (want <= hi) {
+      result = { ok: false, error: `已有玩家坐在 ${hi + 1} 号位，最少要 ${hi + 1} 个座位` };
+      return false;
+    }
+    applySeatCount(draft, want);
+    if (draft.mode === 'werewolf') {
+      draft.aiSeats = [];
+      if (!draft.werewolf) draft.werewolf = REF.makeWerewolf(draft);
+      // 人数变了 → 按新人数重新推荐一套阵容（玩家之后仍可自己改）
+      const WW = (typeof window !== 'undefined') ? window.WEREWOLF : null;
+      if (WW && WW.suggestConfig) {
+        const w = draft.werewolf;
+        const players = (draft.seats || []).filter((s, i) => s && i !== w.moderatorSeat).length;
+        w.roleConfig = WW.suggestConfig(Math.max(1, players || want - 1));
+      }
+    } else {
+      draft.aiSeats = computeAiSeats(draft);
+    }
+    result = { ok: true };
+    return draft;
+  });
+  if (room) {
+    session.room = room;
+    session.view = REF.publicView(room, session.mySeat);
+    emit('room');
+    return { ok: true };
+  }
+  return result;
+}
+
+/** 房主改配置：角色池 / 主持人 */
+async function wwSetConfig(patch) {
+  if (!session.active || !session.isHost) return { ok: false, error: '只有房主能改配置' };
+  let result = { ok: false, error: '提交失败' };
+  const room = await CORE.updateRoom(session.code, (draft) => {
+    if (draft.mode !== 'werewolf') { result = { ok: false, error: '非狼人杀房间' }; return false; }
+    const res = REF.wwSetConfig(draft, patch);
+    result = res;
+    return res.ok ? draft : false;
+  });
+  if (room) {
+    session.room = room;
+    session.view = REF.publicView(room, session.mySeat);
+    emit('room');
+    return { ok: true };
+  }
+  return result;
+}
+
+/** 发言 / 主持人定向喊话 */
+async function wwSay(text, to) {
+  if (!session.active) return { ok: false, error: '未连接房间' };
+  let result = { ok: false, error: '提交失败' };
+  const done = await sendAction((draft) => {
+    if (draft.mode !== 'werewolf') { result = { ok: false, error: '非狼人杀房间' }; return false; }
+    const res = REF.wwSay(draft, session.mySeat, text, to);
+    result = res;
+    return res.ok ? draft : false;
+  });
+  return done ? { ok: true } : result;
+}
+
+/** 主持人切换昼夜 / 结束 */
+async function wwSetPhase(phase) {
+  if (!session.active) return { ok: false, error: '未连接房间' };
+  let result = { ok: false, error: '提交失败' };
+  const done = await sendAction((draft) => {
+    if (draft.mode !== 'werewolf') { result = { ok: false, error: '非狼人杀房间' }; return false; }
+    const res = REF.wwSetPhase(draft, session.mySeat, phase);
+    result = res;
+    return res.ok ? draft : false;
+  });
+  return done ? { ok: true } : result;
+}
+
+/** 主持人判定出局 / 复活 */
+async function wwSetAlive(targetSeat, alive) {
+  if (!session.active) return { ok: false, error: '未连接房间' };
+  let result = { ok: false, error: '提交失败' };
+  const done = await sendAction((draft) => {
+    const res = REF.wwSetAlive(draft, session.mySeat, targetSeat, alive);
+    result = res;
+    return res.ok ? draft : false;
+  });
+  return done ? { ok: true } : result;
+}
+
+/** 主持人公开某人身份 */
+async function wwReveal(targetSeat) {
+  if (!session.active) return { ok: false, error: '未连接房间' };
+  let result = { ok: false, error: '提交失败' };
+  const done = await sendAction((draft) => {
+    const res = REF.wwReveal(draft, session.mySeat, targetSeat);
+    result = res;
+    return res.ok ? draft : false;
+  });
+  return done ? { ok: true } : result;
+}
+
+/** 主持人判定胜负：'good' | 'wolf' | 'draw' */
+async function wwSetWinner(winner) {
+  if (!session.active) return { ok: false, error: '未连接房间' };
+  let result = { ok: false, error: '提交失败' };
+  const done = await sendAction((draft) => {
+    const res = REF.wwSetWinner(draft, session.mySeat, winner);
+    result = res;
+    return res.ok ? draft : false;
+  });
+  return done ? { ok: true } : result;
+}
+
+/** 主持人开下一局（重新抽角色） */
+async function wwNextRound() {
+  if (!session.active) return { ok: false, error: '未连接房间' };
+  let result = { ok: false, error: '提交失败' };
+  const done = await sendAction((draft) => {
+    const res = REF.wwNextRound(draft, session.mySeat);
+    result = res;
+    return res.ok ? draft : false;
+  });
+  return done ? { ok: true } : result;
+}
+
+/** 主持人发起投票；不传 options 则默认「所有存活玩家」 */
+async function wwVoteOpen(title, options) {
+  if (!session.active) return { ok: false, error: '未连接房间' };
+  let result = { ok: false, error: '提交失败' };
+  const done = await sendAction((draft) => {
+    const res = REF.wwVoteOpen(draft, session.mySeat, title, options);
+    result = res;
+    return res.ok ? draft : false;
+  });
+  return done ? { ok: true } : result;
+}
+
+/** 玩家投票（未公布前可改票） */
+async function wwVoteCast(target) {
+  if (!session.active) return { ok: false, error: '未连接房间' };
+  let result = { ok: false, error: '提交失败' };
+  const done = await sendAction((draft) => {
+    const res = REF.wwVoteCast(draft, session.mySeat, target);
+    result = res;
+    return res.ok ? draft : false;
+  });
+  return done ? { ok: true } : result;
+}
+
+/** 主持人结束投票（reveal=true 公布结果） */
+async function wwVoteClose(reveal) {
+  if (!session.active) return { ok: false, error: '未连接房间' };
+  let result = { ok: false, error: '提交失败' };
+  const done = await sendAction((draft) => {
+    const res = REF.wwVoteClose(draft, session.mySeat, reveal);
+    result = res;
+    return res.ok ? draft : false;
+  });
+  return done ? { ok: true } : result;
+}
+
+/** 主持人取消投票 */
+async function wwVoteCancel() {
+  if (!session.active) return { ok: false, error: '未连接房间' };
+  let result = { ok: false, error: '提交失败' };
+  const done = await sendAction((draft) => {
+    const res = REF.wwVoteCancel(draft, session.mySeat);
+    result = res;
+    return res.ok ? draft : false;
+  });
+  return done ? { ok: true } : result;
+}
+
 async function playCard(card) {
   const mode = (session.view && session.view.mode) || (session.room && session.room.mode);
   if (mode === 'ddz') return playCards([card]);
@@ -612,7 +864,9 @@ function mergeRemoteSubmissions(srv, draft) {
   for (const key of ['selectedPass', 'selectedSell', 'bids']) {
     const a = srv[key], b = draft[key];
     if (!Array.isArray(a) || !Array.isArray(b)) continue;
-    for (let i = 0; i < 4; i++) {
+    // ⚠️ 座位数可变（狼人杀最多 12 人），不能写死 4 —— 否则后面的座位永远同步不到
+    const n = Math.min(a.length, b.length, REF.seatCountOf(srv));
+    for (let i = 0; i < n; i++) {
       // 本地是 null（还没提交）而服务器已有 → 采纳服务器（别人提交的）
       if (b[i] === null && a[i] !== null) b[i] = a[i];
     }
@@ -639,6 +893,7 @@ function mergeRemoteSubmissions(srv, draft) {
         'passCount', 'moveSeq', 'bombCount', 'hasRocket', 'roles',
         'lastPlay', 'lastAction', 'baseBid',
         'bidStage', 'bidStarter', 'candidate', 'grabCount', 'grabActs', 'lastGrabber', 'callBid',
+        'mingpai', 'landlord', 'roles',
       ];
       for (const key of stateKeys) {
         if (Object.prototype.hasOwnProperty.call(srv, key)) {
@@ -653,8 +908,9 @@ function mergeRemoteSubmissions(srv, draft) {
     }
   }
   // 座位表：别人的加入 / 离开也要跟上，否则房主写入会把人踢掉
+  // ⚠️ 遍历到实际座位数为止（狼人杀可达 12 人），写死 4 会让后面座位的人反复被踢
   if (Array.isArray(srv.seats)) {
-    for (let i = 0; i < 4; i++) {
+    for (let i = 0; i < REF.seatCountOf(srv); i++) {
       if (srv.seats[i] && !draft.seats[i]) draft.seats[i] = srv.seats[i];
       else if (!srv.seats[i] && draft.seats[i] && srv.seats[i] !== undefined
                && draft.seats[i].id !== session.playerId) {
@@ -696,7 +952,7 @@ const DDZ_BID_STEP_MS = 1500;
  * 本地人机对战的同类逻辑在 app.js（HumanPlayer / waitForDdz 包裹 15s 计时）。
  * 注意：房主自己的座位只自动代打、绝不标 away —— 房主没有"回归"通道（心跳扫描
  * 会跳过房主），一旦被永久托管就再也交不回来。 */
-const TURN_TIMEOUT_MS = 15000;
+const TURN_TIMEOUT_MS = 20000;
 const AUTO_TAKEOVER_AFTER = 2;       // 同一真人座位连续超时达此次数 → AI 托管
 // 测试可用 window.TURN_TIMEOUT_MS 覆盖（懒读取，设了立即生效），避免真等 15s
 function turnTimeoutMs() {
@@ -1148,6 +1404,40 @@ async function reclaimSeat() {
   } catch (_) { /* 网络失败下次心跳/扫描再兜 */ }
 }
 
+/**
+ * 手动 AI 托管：自己主动把本座位交给 AI 代打（标 aiTakeover，房主下一步即代打）。
+ * 与 reclaimSeat 互为反向。房主无回归通道、永不标 away，但 aiTakeover 可以回收，
+ * 所以这里也用 aiTakeover（与超时托管同一套语义）。
+ */
+async function takeoverSeat() {
+  if (!session.active || !session.room || !session.code) return;
+  const idx = session.mySeat;
+  if (idx < 0) return;
+  // 房主：本地直接改权威副本并推回；客人：写服务器由房主轮询接管
+  if (session.isHost) {
+    const draft = JSON.parse(JSON.stringify(session.room));
+    if (draft.seats[idx]) { draft.seats[idx].aiTakeover = true; draft.seats[idx].away = false; }
+    draft.aiSeats = computeAiSeats(draft);
+    const w = await writeHostDraft(draft);
+    session.room = w;
+    session.view = REF.publicView(w, session.mySeat);
+    emit('room');
+    return;
+  }
+  try {
+    const room = await CORE.updateRoom(session.code, (draft) => {
+      if (draft.seats[idx]) { draft.seats[idx].aiTakeover = true; draft.seats[idx].away = false; }
+      draft.aiSeats = computeAiSeats(draft);
+      return draft;
+    });
+    if (room) {
+      session.room = room;
+      session.view = REF.publicView(room, session.mySeat);
+      emit('room');
+    }
+  } catch (_) { /* 网络失败下次心跳/扫描再兜 */ }
+}
+
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 /* ---------- 便捷读取 ---------- */
@@ -1207,9 +1497,12 @@ function myLegalCards() {
 const NET_CLIENT = {
   session, subscribe,
   setPlayerName, ensurePlayerId,
-  createRoom, joinRoom, leaveRoom, reseatAI, reclaimSeat,
-  updateSettings, setMode, startGame, nextRound,
-  submitSell, submitPass, submitBid, playCards, passPlay, playCard,
+  createRoom, joinRoom, leaveRoom, reseatAI, reclaimSeat, takeoverSeat,
+  updateSettings, setMode, setSeatCount, startGame, nextRound,
+  submitSell, submitPass, submitBid, submitMing, playCards, passPlay, playCard,
+  // 狼人杀（联机对话模式）
+  wwSetConfig, wwSay, wwSetPhase, wwSetAlive, wwReveal,
+  wwSetWinner, wwNextRound, wwVoteOpen, wwVoteCast, wwVoteClose, wwVoteCancel,
   isActive, getView, getRoom, getMySeat, amHost, isMyTurn, isMyBidTurn,
   myLegalCards, myLegalPlays,
   setError,

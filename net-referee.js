@@ -27,17 +27,56 @@ function rulesByMode() {
   };
 }
 
+/* ---------- 座位数 ----------
+ *
+ * 房间座位数不再写死 4：狼人杀需要 8~12 人，牌类仍是 4（斗地主 3）。
+ * ⚠️ seatCount 改变时必须同步 seats / hands / scores 等定长数组的长度，
+ *    否则多出来的座位会 undefined，少掉的座位数据会僵在数组里。
+ */
+const MAX_SEATS = 12;
+const MIN_SEATS = 2;
+
+function clampSeatCount(n) {
+  const v = parseInt(n, 10);
+  if (!Number.isInteger(v)) return 4;
+  return Math.max(MIN_SEATS, Math.min(MAX_SEATS, v));
+}
+
+/** 各玩法的默认座位数 */
+function defaultSeatCount(mode) {
+  if (mode === 'ddz') return 3;
+  if (mode === 'werewolf') return 9;   // 常见 9 人局（3 狼 / 3 神 / 3 民）
+  return 4;
+}
+
+/** 房间当前座位数（兼容旧房间没有 seatCount 字段的情况） */
+function seatCountOf(room) {
+  if (!room) return 4;
+  if (Number.isInteger(room.seatCount) && room.seatCount > 0) return room.seatCount;
+  return Array.isArray(room.seats) ? room.seats.length : 4;
+}
+
+/** 把按座位定长的数组统一对齐到 seatCount（多退少补） */
+function fitSeatArray(arr, n, fill) {
+  const src = Array.isArray(arr) ? arr.slice() : [];
+  const out = [];
+  for (let i = 0; i < n; i++) out.push(i < src.length ? src[i] : (typeof fill === 'function' ? fill(i) : fill));
+  return out;
+}
+
 /** 创建一个初始房间对象 */
 function makeRoom(code, opts = {}) {
   const mode = opts.mode || 'gongzhu';
+  const seatCount = clampSeatCount(opts.seatCount || defaultSeatCount(mode));
   const room = {
     v: 1,                       // 版本号（CAS 用）
     code,
     mode,
+    seatCount,                  // ⚠️ 唯一的座位容量真相源
     createdAt: Date.now(),
     touchedAt: Date.now(),
     hostId: opts.hostId,
-    seats: [null, null, null, null],   // 每个座位：{id,name,ready} 或 null
+    seats: new Array(seatCount).fill(null),   // 每个座位：{id,name,ready} 或 null
     settings: {
       delay: true,
       sell: true,
@@ -48,15 +87,16 @@ function makeRoom(code, opts = {}) {
     // 牌局
     phase: 'lobby',             // lobby | selling | passing | playing | roundEnd | gameEnd
     round: 0,
-    scores: [0, 0, 0, 0],
-    hands: [[], [], [], []],    // 各家手牌（只下发给本人，见 publicView）
-    collected: [0, 0, 0, 0],
-    collectedCards: [[], [], [], []],
+    // ⚠️ 所有「按座位定长」的数组都必须按 seatCount 生成，不能写死 4
+    scores: new Array(seatCount).fill(0),
+    hands: fitSeatArray([], seatCount, () => []),   // 各家手牌（只下发给本人，见 publicView）
+    collected: new Array(seatCount).fill(0),
+    collectedCards: fitSeatArray([], seatCount, () => []),
     sold: [],
     soldBy: {},
     passDirection: 'none',
-    selectedPass: [null, null, null, null],   // null=未提交；数组=已提交（可为空数组）
-    selectedSell: [null, null, null, null],
+    selectedPass: new Array(seatCount).fill(null),  // null=未提交；数组=已提交（可为空数组）
+    selectedSell: new Array(seatCount).fill(null),
     trickIndex: 0,
     trickPlays: [],             // [{seat, card}]
     leadSuit: null,
@@ -78,7 +118,7 @@ function makeRoom(code, opts = {}) {
     room.bottom = [];
     room.baseBid = 1;
     room.redealCount = 0;
-    room.bids = [null, null, null, null];
+    room.bids = new Array(seatCount).fill(null);
     room.bidTurn = -1;
     room.currentBid = 0;
     room.highestBidder = -1;
@@ -99,7 +139,60 @@ function makeRoom(code, opts = {}) {
     room.actions = [];
     room.actionSeq = 0;
   }
+  if (mode === 'werewolf') {
+    room.werewolf = makeWerewolf(room);
+  }
   return room;
+}
+
+/* ---------- 狼人杀：房间子状态 ----------
+ *
+ * 与牌局完全不同：没有手牌/牌桌，只有「角色分配 + 消息流」。
+ * 消息一律带 to（目标），可见性由 werewolf.js 的 canSee 判定，
+ * 下发前在 publicView 里裁剪 —— 前端只负责渲染，不做权限判断。
+ */
+function makeWerewolf(room) {
+  const WW = wwModule();
+  const n = seatCountOf(room);
+  return {
+    phase: 'setup',            // setup | night | day | end
+    round: 0,
+    moderatorSeat: -1,         // 主持人座位（不参与扮演、不分配角色）
+    roleConfig: (WW && WW.suggestConfig) ? WW.suggestConfig(Math.max(1, n - 1)) : [],
+    roles: new Array(n).fill(null),   // 每座位角色 {key,name,camp}；主持人座位为 null
+    alive: new Array(n).fill(true),
+    revealed: new Array(n).fill(false),  // 是否已公开身份（出局/被查验）
+    messages: [],              // {id,from,to,text,phase,round,ts,system?}
+    seq: 0,
+    startedAt: 0,
+    winner: null,              // 'good' | 'wolf' | 'draw' | null（当前局）
+    results: [],               // 历史战绩 [{round, winner, at}]
+    // 投票：主持人发起 → 玩家投票 → 公布结果
+    // ballots 在公布前只给主持人和投票者本人看（publicView 裁剪）
+    vote: null,                // {open,title,options:[seat],ballots:{seat:target},revealed,result}
+  };
+}
+
+/** 系统公告（全场可见）：出局 / 投票结果 / 换局等，由裁判生成 */
+function wwPushSystem(w, text) {
+  w.seq = (w.seq || 0) + 1;
+  w.messages.push({
+    id: w.seq, from: -1, to: { kind: 'all' }, text: String(text),
+    phase: w.phase, round: w.round, ts: Date.now(), system: true,
+  });
+  if (w.messages.length > 300) w.messages = w.messages.slice(-300);
+}
+
+function wwModule() {
+  const g = (typeof globalThis !== 'undefined') ? globalThis : root;
+  let ww = g.WEREWOLF || root.WEREWOLF || null;
+  // ⚠️ 必须有 require 兜底：浏览器里 werewolf.js 用 <script> 挂到 window，
+  //    但 Node 环境（单测 / 服务端）不会自动挂全局，取不到就抽不出角色
+  //    —— 表现为「开局成功但所有人身份为空」。与 rulesByMode 处理 ddz 一致。
+  if (!ww && typeof require === 'function') {
+    try { ww = require('./werewolf.js'); } catch (_) { /* 浏览器没有 require */ }
+  }
+  return ww;
 }
 
 /* ---------- 工具 ---------- */
@@ -119,7 +212,7 @@ function activeSeats(room) {
   const out = [];
   if (!room || !Array.isArray(room.seats)) return out;
   const ai = Array.isArray(room.aiSeats) ? room.aiSeats : [];
-  const count = room.mode === 'ddz' ? 3 : 4;
+  const count = seatCountOf(room);
   for (let i = 0; i < count; i++) {
     if (room.seats[i] || ai.includes(i)) out.push(i);
   }
@@ -142,8 +235,9 @@ function dealDdz(room) {
   }
   room.bottom = deck.slice(k);
   room.phase = 'bidding';
-  room.bids = [null, null, null, null];
-  room.grabActs = [null, null, null, null];
+  const n = seatCountOf(room);
+  room.bids = new Array(n).fill(null);
+  room.grabActs = new Array(n).fill(null);
   room.bidStage = 'call';
   room.bidStarter = Math.floor(Math.random() * active.length);  // 随机起始叫位
   room.candidate = -1;
@@ -163,11 +257,13 @@ function dealDdz(room) {
   room.moveSeq = 0;
   room.bombCount = 0;
   room.hasRocket = false;
+  room.mingpai = false;            // 斗地主：地主明牌（公开手牌 → 倍数 ×2）
   room.heartsBroken = false;
   room.farmerPlayCount = 0;
   room.landlordPlayCount = 0;
   room.roles = [];
   room.trickPlays = [];
+  room.trickClearAt = 0;           // 「两家不出」展示期截止时间（0 = 无）
   room.lastPlay = null;
   room.lastAction = null;
   room.actions = [];
@@ -188,9 +284,13 @@ function finishDdzBidding(room) {
   room.landlord = landlord;
   room.baseBid = room.callBid || 1;          // 底分 = 最高叫分（抢地主不覆盖）
   room.hands[landlord] = R.sortHand(room.hands[landlord].concat(room.bottom));
-  room.roles = [0, 1, 2, 3].map((seat) =>
-    seat >= 3 ? null : (seat === landlord ? 'landlord' : 'farmer'));
-  room.phase = 'playing';
+  // 角色数组按实际座位数生成（三人局：1 地主 + 2 农民）
+  room.roles = Array.from({ length: seatCountOf(room) }, (_, seat) =>
+    (seat === landlord ? 'landlord' : 'farmer'));
+  // 进入「明牌」阶段：地主收下底牌后、出第一手前决定是否亮牌（倍数 ×2）。
+  // 联机由房主 stepAI / maybeTimeoutCurrentActor 驱动，客户端按 phase 弹明牌弹窗。
+  room.mingpai = false;
+  room.phase = 'ming';
   room.turn = landlord;
   room.bidTurn = -1;
   room.bidStage = 'done';
@@ -208,6 +308,11 @@ function finishDdzBidding(room) {
  * 只有房主调用。
  */
 function startRound(room) {
+  // 狼人杀：不开局发牌，只做「抽角色 + 进入夜晚」
+  if (room.mode === 'werewolf') {
+    const res = wwStart(room);
+    return !!res.ok;
+  }
   if (room.mode === 'ddz') {
     if (activeSeats(room).length < 3) return false;
     room.round += 1;
@@ -230,8 +335,8 @@ function startRound(room) {
   room.sold = [];
   room.soldBy = {};
   room.lastTrick = null;
-  room.selectedPass = [null, null, null, null];
-  room.selectedSell = [null, null, null, null];
+  room.selectedPass = new Array(seatCountOf(room)).fill(null);
+  room.selectedSell = new Array(seatCountOf(room)).fill(null);
   room.hands = [[], [], [], []];
   room.log = [`第 ${room.round} 局开始`];
 
@@ -321,7 +426,7 @@ function submitBid(room, seat, action) {
         // 叫满 3 分 → 叫地主阶段结束，进入抢地主
         room.bidStage = 'grab';
         room.bidCount = 0;
-        room.grabActs = [null, null, null, null];
+        room.grabActs = new Array(seatCountOf(room)).fill(null);
         room.bidTurn = nextActiveSeat(room, seat);
         return { ok: true };
       }
@@ -343,7 +448,7 @@ function submitBid(room, seat, action) {
     if (room.candidate >= 0 && room.bidCount >= active.length) {
       room.bidStage = 'grab';
       room.bidCount = 0;
-      room.grabActs = [null, null, null, null];
+      room.grabActs = new Array(seatCountOf(room)).fill(null);
       room.bidTurn = nextActiveSeat(room, room.candidate);
       return { ok: true };
     }
@@ -377,6 +482,26 @@ function submitBid(room, seat, action) {
     return { ok: true };
   }
   room.bidTurn = nextActiveSeat(room, seat);
+  return { ok: true };
+}
+
+/** 明牌（斗地主）：地主收下底牌后决定亮不亮全部手牌，亮则本局倍数 ×2。 */
+function submitMing(room, seat, on) {
+  if (room.mode !== 'ddz' || room.phase !== 'ming') {
+    return { ok: false, error: '当前不是明牌阶段' };
+  }
+  if (room.turn !== seat) return { ok: false, error: '还没轮到你' };
+  if (!Array.isArray(room.actions)) room.actions = [];
+  if (!Number.isInteger(room.actionSeq)) room.actionSeq = 0;
+  const action = { type: 'ming', seat, on: !!on, seq: ++room.actionSeq };
+  room.lastAction = action;
+  room.actions.push(action);
+  room.mingpai = !!on;
+  room.phase = 'playing';
+  room.turn = room.landlord;
+  room.log.push(
+    `${(room.seats[seat] && room.seats[seat].name) || ('玩家' + seat)} ` +
+    `${on ? '明牌（亮出全部手牌，倍数 ×2）' : '不明牌'}`);
   return { ok: true };
 }
 
@@ -457,6 +582,9 @@ function passDdz(room, seat) {
     room.currentCombo = null;
     room.passCount = 0;
     room.turn = room.lastLeadSeat;
+    // 第二家的「不出」先留在桌面展示一会儿（~1.4s），到点由 stepAI 清空 ——
+    // 与单机 doDdzPass 的「先展示上两家都不出，再清桌」语义一致。
+    room.trickClearAt = Date.now() + 1400;
     // ⚠️ 新的一手开始 → 清空桌面动作。单机侧（app.js doDdzPass）一直是这么做的，
     //    裁判侧漏了这一句：trickPlays 会一路累积到本局结束，
     //    客户端就会把「上一手是谁跳过的」误当成「这一手也跳过了」。
@@ -607,6 +735,7 @@ function endRound(room, winner) {
       grabs: room.grabCount,
       spring,
       antiSpring,
+      mingpai: room.mingpai,
     });
     const deltas = [0, 0, 0, 0];
     for (let seat = 0; seat < 3; seat++) {
@@ -780,9 +909,26 @@ function stepAI(room) {
   const ai = Array.isArray(room.aiSeats) ? room.aiSeats : [];
   const isAI = (s) => ai.includes(s);
 
+  // 「上两家都不出」展示期到点 → 清空桌面（与单机 doDdzPass 的停顿语义对齐）。
+  // 放在 stepAI 顶部：房主节拍循环每 ~300ms 用副本试探一次，到点就返回 true
+  // 让草稿被写回，客户端拿到 trickPlays 已清空的快照后自然收桌。
+  if (room.mode === 'ddz' && room.trickClearAt && Date.now() >= room.trickClearAt) {
+    room.trickClearAt = 0;
+    room.trickPlays = [];
+    return true;
+  }
+
   if (room.mode === 'ddz') {
     if (room.phase === 'bidding' && isAI(room.bidTurn)) {
       submitBid(room, room.bidTurn, aiChooseBid(room, room.bidTurn));
+      return true;
+    }
+    if (room.phase === 'ming' && isAI(room.turn)) {
+      const D = ruleOf(room);
+      submitMing(room, room.turn,
+        D.mingpaiAI(room.hands[room.turn] || [], {
+          difficulty: (room.settings && room.settings.aiDifficulty) || 'normal',
+        }));
       return true;
     }
     if (room.phase === 'playing' && room.turn != null && isAI(room.turn)) {
@@ -853,6 +999,9 @@ function forceTimeout(room, seat) {
     if (room.phase === 'bidding' && room.bidTurn === seat) {
       submitBid(room, seat, { act: 'pass' }); return true;  // 叫/抢超时 → 不叫/不抢
     }
+    if (room.phase === 'ming' && room.turn === seat) {
+      submitMing(room, seat, false); return true;            // 明牌超时 → 默认不明牌
+    }
     if (room.phase === 'playing' && room.turn === seat) {
       if (room.currentCombo) { passDdz(room, seat); return true; }   // 能不出就不出
       const cards = aiChooseDdzPlay(room, seat);
@@ -881,6 +1030,7 @@ function currentActorSeat(room) {
   if (!room) return -1;
   if (room.mode === 'ddz') {
     if (room.phase === 'bidding') return room.bidTurn;
+    if (room.phase === 'ming') return room.turn;
     if (room.phase === 'playing') return room.turn;
     return -1;
   }
@@ -896,6 +1046,337 @@ function currentActorSeat(room) {
   return -1;
 }
 
+/* ---------- 狼人杀：动作 ---------- */
+
+/** 消息目标归一化：主持人与玩家的权限不同（玩家夜晚只能私聊主持人） */
+function wwNormalizeTarget(to, isMod, w, seat, roles) {
+  const t = to || {};
+  const kind = t.kind || 'all';
+  if (kind === 'all') {
+    // 玩家只能在「白天」公开发言；主持人随时可以全场广播
+    if (!isMod && w.phase !== 'day') return null;
+    return { kind: 'all' };
+  }
+  if (kind === 'mod') {
+    if (isMod) return null;                    // 主持人没有「私聊主持人」
+    return { kind: 'mod' };
+  }
+  if (kind === 'role') {
+    const role = String(t.role || '').trim();
+    if (!role) return null;
+    // 玩家只能往「自己所在角色」的频道发言 —— 这就是狼人夜里互相讨论的通道。
+    // 想发给别的角色？不行，那是主持人特权。
+    if (!isMod) {
+      const me = (roles || [])[seat];
+      if (!me || me.key !== role) return null;
+    }
+    return { kind: 'role', role };
+  }
+  if (!isMod) return null;                     // 定向给单个玩家是主持人特权
+  if (kind === 'seat') {
+    const s = parseInt(t.seat, 10);
+    const n = (w && Array.isArray(w.alive)) ? w.alive.length : seatCountOf(null);
+    return (Number.isInteger(s) && s >= 0 && s < n) ? { kind: 'seat', seat: s } : null;
+  }
+  return null;
+}
+
+/** 房主（或主持人）改配置：角色池 / 主持人 */
+function wwSetConfig(room, patch) {
+  const w = room.werewolf;
+  if (!w) return { ok: false, error: '非狼人杀房间' };
+  if (w.phase !== 'setup') return { ok: false, error: '游戏已开始，不能改配置' };
+  const p = patch || {};
+  const WW = wwModule();
+  if (Array.isArray(p.roleConfig)) {
+    w.roleConfig = p.roleConfig
+      .filter((r) => r && String(r.key || '').trim())
+      .map((r) => {
+        const n = Math.max(0, parseInt(r.count, 10) || 0);
+        const base = (WW && WW.roleByKey) ? WW.roleByKey(r.key, r.name) : { key: r.key };
+        return {
+          key: base.key,
+          name: base.name || r.name || r.key,
+          camp: base.camp || 'good',
+          // seePeers：该角色成员之间是否互相知道身份（狼人互认）。
+          // 显式给了就用配置值，没给就继承角色库默认（自定义角色默认 false）。
+          seePeers: (r.seePeers != null) ? !!r.seePeers : !!base.seePeers,
+          count: n,
+        };
+      });
+  }
+  if (p.moderatorSeat !== undefined) {
+    const m = parseInt(p.moderatorSeat, 10);
+    w.moderatorSeat = Number.isInteger(m) ? m : -1;
+  }
+  // 玩家数变了就顺手按新人数推荐一套阵容（仅在玩家没手动改过时）
+  if (p.autoSuggest) {
+    const seats = activeSeats(room).filter((s) => s !== w.moderatorSeat);
+    if (WW && WW.suggestConfig) w.roleConfig = WW.suggestConfig(seats.length);
+  }
+  return { ok: true };
+}
+
+/** 抽角色 + 重置存活/公开状态。开局与「下一局」共用，避免两处逻辑走偏。 */
+function wwDealRoles(room, w, bumpRound) {
+  const seats = activeSeats(room);
+  if (seats.length < 2) return { ok: false, error: '至少需要 2 位玩家' };
+  if (!(w.moderatorSeat >= 0) || !seats.includes(w.moderatorSeat)) {
+    return { ok: false, error: '请先指定一名玩家为主持人' };
+  }
+  const players = seats.filter((s) => s !== w.moderatorSeat);
+  if (players.length < 1) return { ok: false, error: '除主持人外至少要有 1 位玩家' };
+
+  const WW = wwModule();
+  const draw = (WW && WW.drawRoles) ? WW.drawRoles : null;
+  let assign = {}, filled = 0, trimmed = 0;
+  if (draw) {
+    const res = draw(players, w.roleConfig);
+    assign = res.assign; filled = res.filled; trimmed = res.trimmed;
+  }
+
+  const n = seatCountOf(room);
+  w.roles = new Array(n).fill(null);
+  players.forEach((s) => { w.roles[s] = assign[s] || null; });
+  w.alive = Array.from({ length: n }, (_, i) => seats.includes(i));
+  w.revealed = new Array(n).fill(false);
+  w.vote = null;
+  w.winner = null;
+  if (bumpRound) w.round = (w.round || 0) + 1;
+  return { ok: true, filled, trimmed };
+}
+
+function wwNoteLine(filled, trimmed) {
+  const note = [];
+  if (filled) note.push(`角色不足，已补 ${filled} 名村民`);
+  if (trimmed) note.push(`角色超出，已随机去掉 ${trimmed} 个`);
+  return note.join('；');
+}
+
+/** 开局：给「非主持人」的座位随机抽角色 */
+function wwStart(room) {
+  const w = room.werewolf;
+  if (!w) return { ok: false, error: '非狼人杀房间' };
+  const res = wwDealRoles(room, w, false);
+  if (!res.ok) return res;
+
+  w.round = 1;
+  w.phase = 'night';
+  w.startedAt = Date.now();
+  w.messages = [];
+  w.seq = 0;
+  w.results = Array.isArray(w.results) ? w.results : [];
+
+  room.phase = 'playing';        // 脱离大厅；子阶段看 werewolf.phase
+  room.turn = -1;                // 狼人杀没有「轮到谁出牌」，置 -1 让节拍循环空转
+  room.round = 1;
+  room.log = ['狼人杀开局：角色已随机分配'];
+  const line = wwNoteLine(res.filled, res.trimmed);
+  if (line) room.log.push(line);
+  return { ok: true, filled: res.filled, trimmed: res.trimmed };
+}
+
+/** 主持人判定胜负（好人 / 狼人 / 平局）→ 本局结束 */
+function wwSetWinner(room, seat, winner) {
+  const w = room.werewolf;
+  if (!w) return { ok: false, error: '非狼人杀房间' };
+  if (seat !== w.moderatorSeat) return { ok: false, error: '只有主持人能判定胜负' };
+  const key = String(winner || '');
+  if (!['good', 'wolf', 'draw'].includes(key)) return { ok: false, error: '胜负非法' };
+
+  w.winner = key;
+  w.phase = 'end';
+  room.phase = 'roundEnd';
+  w.results = Array.isArray(w.results) ? w.results : [];
+  w.results.push({ round: w.round || 1, winner: key, at: Date.now() });
+  const label = key === 'good' ? '好人阵营获胜' : (key === 'wolf' ? '狼人阵营获胜' : '平局');
+  wwPushSystem(w, `第 ${w.round || 1} 局结束：${label}`);
+  return { ok: true };
+}
+
+/** 主持人开下一局：重新抽角色、清空消息、局数 +1 */
+function wwNextRound(room, seat) {
+  const w = room.werewolf;
+  if (!w) return { ok: false, error: '非狼人杀房间' };
+  if (seat !== w.moderatorSeat) return { ok: false, error: '只有主持人能开下一局' };
+  if (w.phase !== 'end') return { ok: false, error: '请先结束本局并判定胜负' };
+
+  const res = wwDealRoles(room, w, true);
+  if (!res.ok) return res;
+
+  w.messages = [];
+  w.seq = 0;
+  w.phase = 'night';
+  room.phase = 'playing';
+  room.round = w.round;
+  wwPushSystem(w, `第 ${w.round} 局开始：角色已重新分配`);
+  const line = wwNoteLine(res.filled, res.trimmed);
+  if (line) wwPushSystem(w, line);
+  return { ok: true, filled: res.filled, trimmed: res.trimmed };
+}
+
+/* ---------- 投票 ---------- */
+
+function wwVoteOpen(room, seat, title, options) {
+  const w = room.werewolf;
+  if (!w) return { ok: false, error: '非狼人杀房间' };
+  if (seat !== w.moderatorSeat) return { ok: false, error: '只有主持人能发起投票' };
+  if (w.phase !== 'night' && w.phase !== 'day') return { ok: false, error: '当前阶段不能投票' };
+
+  let opts = Array.isArray(options) && options.length
+    ? options.map((s) => parseInt(s, 10))
+      .filter((s) => Number.isInteger(s) && s >= 0 && s < seatCountOf(room))
+    : [];
+  // 不指定候选时默认为「所有存活玩家（不含主持人）」
+  if (!opts.length) {
+    opts = Array.from({ length: seatCountOf(room) }, (_, i) => i)
+      .filter((i) => room.seats[i] && i !== w.moderatorSeat && w.alive[i] !== false);
+  }
+  if (!opts.length) return { ok: false, error: '没有可投的候选' };
+
+  w.vote = {
+    open: true,
+    title: String(title || '投票').slice(0, 30),
+    options: opts,
+    ballots: {},
+    revealed: false,
+    result: null,
+    at: Date.now(),
+  };
+  wwPushSystem(w, `投票开始：${w.vote.title}（候选 ${opts.length} 位）`);
+  return { ok: true };
+}
+
+function wwVoteCast(room, seat, target) {
+  const w = room.werewolf;
+  if (!w) return { ok: false, error: '非狼人杀房间' };
+  const v = w.vote;
+  if (!v || !v.open) return { ok: false, error: '当前没有进行中的投票' };
+  if (seat === w.moderatorSeat) return { ok: false, error: '主持人不参与投票' };
+  if (w.alive && w.alive[seat] === false) return { ok: false, error: '你已出局，不能投票' };
+  const t = parseInt(target, 10);
+  if (!v.options.includes(t)) return { ok: false, error: '候选人非法' };
+  v.ballots[seat] = t;
+  return { ok: true };
+}
+
+/** 结束投票；reveal=true 时把结果公之于众 */
+function wwVoteClose(room, seat, reveal) {
+  const w = room.werewolf;
+  if (!w) return { ok: false, error: '非狼人杀房间' };
+  if (seat !== w.moderatorSeat) return { ok: false, error: '只有主持人能结束投票' };
+  const v = w.vote;
+  if (!v || !v.open) return { ok: false, error: '当前没有进行中的投票' };
+
+  const WW = wwModule();
+  const tally = (WW && WW.tallyVotes)
+    ? WW.tallyVotes(v)
+    : { top: null, tie: false, tied: [], total: 0 };
+  v.open = false;
+  v.result = tally;
+
+  if (reveal !== false) {
+    v.revealed = true;
+    const nm = (s) => ((room.seats && room.seats[s]) ? room.seats[s].name : `${s + 1} 号`);
+    const line = (!tally.top || tally.tie)
+      ? (tally.tie ? `平票（${tally.tied.map((e) => nm(e.seat)).join('、')} 各 ${tally.tied[0].count} 票）` : '无人投票')
+      : `${nm(tally.top.seat)} 得票最高（${tally.top.count} 票）`;
+    wwPushSystem(w, `投票结果：${line}`);
+  }
+  return { ok: true };
+}
+
+function wwVoteCancel(room, seat) {
+  const w = room.werewolf;
+  if (!w) return { ok: false, error: '非狼人杀房间' };
+  if (seat !== w.moderatorSeat) return { ok: false, error: '只有主持人能取消投票' };
+  if (!w.vote || !w.vote.open) return { ok: false, error: '当前没有进行中的投票' };
+  w.vote = null;
+  wwPushSystem(w, '投票已取消');
+  return { ok: true };
+}
+
+/** 发言 / 主持人喊话 */
+function wwSay(room, seat, text, to) {
+  const w = room.werewolf;
+  if (!w) return { ok: false, error: '非狼人杀房间' };
+  if (w.phase !== 'night' && w.phase !== 'day') return { ok: false, error: '当前阶段不能发言' };
+  const t = String(text == null ? '' : text).trim();
+  if (!t) return { ok: false, error: '消息不能为空' };
+  if (t.length > 200) return { ok: false, error: '消息最多 200 字' };
+
+  const isMod = seat === w.moderatorSeat;
+  // 出局的玩家不再发言（主持人不受此限，他要继续主持）
+  if (!isMod && w.alive && w.alive[seat] === false) {
+    return { ok: false, error: '你已出局，不能再发言' };
+  }
+  const target = wwNormalizeTarget(to, isMod, w, seat, w.roles);
+  if (!target) {
+    return {
+      ok: false,
+      error: isMod ? '消息目标非法' : '夜晚只能私聊主持人或本角色频道，白天才能公开发言',
+    };
+  }
+
+  w.seq = (w.seq || 0) + 1;
+  w.messages.push({
+    id: w.seq, from: seat, to: target, text: t,
+    phase: w.phase, round: w.round, ts: Date.now(),
+  });
+  // 消息流上限，避免长时间对局把房间撑爆
+  if (w.messages.length > 300) w.messages = w.messages.slice(-300);
+  return { ok: true };
+}
+
+/** 主持人切换昼夜 / 结束对局 */
+function wwSetPhase(room, seat, phase) {
+  const w = room.werewolf;
+  if (!w) return { ok: false, error: '非狼人杀房间' };
+  if (seat !== w.moderatorSeat) return { ok: false, error: '只有主持人能切换阶段' };
+  const p = String(phase || '');
+  if (!['night', 'day', 'end'].includes(p)) return { ok: false, error: '阶段非法' };
+  if (p === 'night' && w.phase === 'day') w.round = (w.round || 0) + 1;
+  w.phase = p;
+  room.phase = (p === 'end') ? 'roundEnd' : 'playing';
+  if (p === 'end') room.log = room.log || [], room.log.push('主持人宣布对局结束');
+  return { ok: true };
+}
+
+/** 主持人判定出局 / 复活（出局默认公开身份） */
+function wwSetAlive(room, seat, targetSeat, alive) {
+  const w = room.werewolf;
+  if (!w) return { ok: false, error: '非狼人杀房间' };
+  if (seat !== w.moderatorSeat) return { ok: false, error: '只有主持人能判定出局' };
+  const t = parseInt(targetSeat, 10);
+  if (!Number.isInteger(t) || t < 0 || t >= seatCountOf(room)) return { ok: false, error: '座位非法' };
+  if (t === w.moderatorSeat) return { ok: false, error: '主持人不是玩家' };
+
+  const wasAlive = w.alive[t] !== false;
+  w.alive[t] = !!alive;
+  const name = (room.seats && room.seats[t]) ? room.seats[t].name : `${t + 1} 号`;
+  const role = (w.roles || [])[t];
+
+  if (!alive && wasAlive) {
+    // 出局 = 身份公开 + 给全场一条死亡公告（这是「死亡提示」的唯一来源）
+    w.revealed[t] = true;
+    wwPushSystem(w, `${name} 出局${role ? '，身份是「' + role.name + '」' : ''}`);
+  } else if (alive && !wasAlive) {
+    wwPushSystem(w, `${name} 已复活`);
+  }
+  return { ok: true };
+}
+
+/** 主持人公开某位玩家的身份（如被查验 / 遗言） */
+function wwReveal(room, seat, targetSeat) {
+  const w = room.werewolf;
+  if (!w) return { ok: false, error: '非狼人杀房间' };
+  if (seat !== w.moderatorSeat) return { ok: false, error: '只有主持人能公开身份' };
+  const t = parseInt(targetSeat, 10);
+  if (!Number.isInteger(t) || t < 0 || t >= seatCountOf(room)) return { ok: false, error: '座位非法' };
+  w.revealed[t] = true;
+  return { ok: true };
+}
+
 function publicView(room, mySeat) {
   const view = JSON.parse(JSON.stringify(room));
   view.hands = room.hands.map((h, i) => (i === mySeat ? h : []));
@@ -908,19 +1389,69 @@ function publicView(room, mySeat) {
   if (room.mode === 'ddz' && !['playing', 'roundEnd', 'gameEnd'].includes(room.phase)) {
     view.bottom = [];
   }
+  // 明牌：地主手牌全程公开给所有客户端（防作弊裁剪只保留本人手牌，这里显式放开地主）
+  if (room.mode === 'ddz' && room.mingpai && room.landlord >= 0) {
+    view.hands[room.landlord] = room.hands[room.landlord];
+  }
+
+  /* 狼人杀：角色 + 消息按可见性裁剪。
+   *
+   * ⚠️ 必须在这里（裁判侧）裁剪，不能交给前端隐藏 —— 前端拿到完整数据后，
+   *    玩家 F12 打开控制台就能看到所有人的身份和私密消息，模式直接失效。
+   *    规则由 werewolf.js 的 canSee 单点定义，这里只负责执行。 */
+  if (room.mode === 'werewolf' && room.werewolf) {
+    const w = room.werewolf;
+    const isMod = mySeat === w.moderatorSeat;
+    const WW = wwModule();
+    const ctx = {
+      moderatorSeat: w.moderatorSeat,
+      roles: w.roles,
+      roleConfig: w.roleConfig,
+      seatNames: (room.seats || []).map((s) => (s ? s.name : '')),
+    };
+    const vis = (WW && WW.visibleMessages)
+      ? WW.visibleMessages(w.messages, mySeat, ctx)
+      : (w.messages || []).filter((m) => !m.to || m.to.kind === 'all');
+
+    const ww = JSON.parse(JSON.stringify(w));
+    // 身份：主持人看全场 / 玩家只看自己 / 已公开可见 / **同角色互认（狼人看得到同伴）**
+    ww.roles = (w.roles || []).map((r, i) => {
+      if (isMod) return r;
+      if (w.revealed && w.revealed[i]) return r;
+      if (WW && WW.canSeeRole && WW.canSeeRole(w.roles, mySeat, i)) return r;
+      return (i === mySeat) ? r : null;
+    });
+    // 同伴座位（界面用来标「同伴」角标）
+    ww.peers = (WW && WW.peerSeats) ? WW.peerSeats(w.roles, mySeat) : [];
+    // 选票：公布前只给主持人和投票者本人看，避免跟风投票
+    if (ww.vote && !ww.vote.revealed && !isMod) {
+      const mine = (ww.vote.ballots || {})[mySeat];
+      ww.vote.ballots = (mine == null) ? {} : { [mySeat]: mine };
+    }
+    ww.messages = JSON.parse(JSON.stringify(vis));
+    ww.isMod = isMod;
+    ww.mySeat = mySeat;
+    view.werewolf = ww;
+  }
   return view;
 }
 
 const NET_REFEREE = {
   RULES_BY_MODE: rulesByMode,
+  MAX_SEATS, MIN_SEATS, clampSeatCount, defaultSeatCount, seatCountOf, fitSeatArray,
   makeRoom, ruleOf, occupiedSeats, humanCount, activeSeats,
   startRound, afterSell, beginPlay, dealDdz, finishDdzBidding,
-  legalFor, playCard, playCards, passDdz, submitBid,
+  legalFor, playCard, playCards, passDdz, submitBid, submitMing,
   resolveTrick, releaseHold, endRound, nextActiveSeat,
   submitSell, submitPass,
   aiChooseCard, aiChooseBid, aiChooseDdzPlay, aiChooseSell, aiChoosePass, stepAI,
   currentActorSeat, forceTimeout,
   publicView,
+  // 狼人杀（联机对话模式）
+  makeWerewolf, wwSetConfig, wwStart, wwSay, wwSetPhase, wwSetAlive, wwReveal,
+  wwNormalizeTarget, wwDealRoles,
+  wwSetWinner, wwNextRound,
+  wwVoteOpen, wwVoteCast, wwVoteClose, wwVoteCancel,
 };
 
 if (typeof module !== 'undefined' && module.exports) module.exports = NET_REFEREE;

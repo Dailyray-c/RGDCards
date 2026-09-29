@@ -79,6 +79,15 @@
             <span class="mode-desc">三人联机、叫分抢地主、底牌加倍</span>
             <span class="mode-tags"><i>三人联机</i><i>叫分 1～3</i><i>底牌</i></span>
           </button>
+          <button class="mode-card" data-mode="werewolf" aria-pressed="false">
+            <span class="mode-top">
+              <span class="mode-mark mark-ww" aria-hidden="true"><span>狼</span></span>
+              <span class="radio" aria-hidden="true"></span>
+            </span>
+            <b class="mode-name">狼人杀</b>
+            <span class="mode-desc">联机专属 · 自定角色与主持人，私聊频道对话推进</span>
+            <span class="mode-tags"><i>联机专属</i><i>无牌面</i><i>私密频道</i></span>
+          </button>
         </div>
       </div>
 
@@ -197,7 +206,7 @@
           <svg viewBox="0 0 34 34" fill="none"><circle cx="17" cy="13" r="4.8" stroke="currentColor" stroke-width="1.8"/><path d="M8.5 26c0-4.2 3.9-7 8.5-7s8.5 2.8 8.5 7" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
         </span>
         <span class="player-text">
-          <input class="player-name" id="playerName" maxlength="10" value="玩家昵称" aria-label="昵称">
+          <input class="player-name" id="playerName" maxlength="10" placeholder="玩家昵称" aria-label="昵称">
           <i>点击可修改昵称</i>
         </span>
       </div>
@@ -268,9 +277,10 @@
   <main class="table-wrap">
     <div class="table" id="table">
 
-      <!-- 拱猪亮牌公示条：本局各家的公开赌注（与「已收的牌」严格分开） -->
+      <!-- 亮牌公示条：本局的公开赌注（与「已收的牌」严格分开）
+           拱猪 = 各家亮出的猪/羊/变压器/红桃A；斗地主 = 地主明牌后公开的全部手牌 -->
       <div class="sold-board" id="soldBoard" hidden>
-        <span class="sold-board-title">本局亮牌</span>
+        <span class="sold-board-title" id="soldBoardTitle">本局亮牌</span>
         <div class="sold-board-list" id="soldBoardList"></div>
       </div>
 
@@ -354,8 +364,10 @@
                ⚠️ 叫分数据原本在下方「本局我收下的分」那一条里，与手牌无关、
                  在手机端还多占一行 —— 移到手牌标题行最右侧。 -->
           <span class="hand-head-right">
-            <span class="takeover-chip" id="takeoverChip" hidden>🤖 AI 托管中</span>
+            <!-- 「🤖 AI 托管中」chip 已移除（2026-09-28 用户反馈：手机端这一行太挤）。
+                 托管状态由「收回控制权」按钮单独表达 —— 它出现即代表当前是 AI 在打。 -->
             <button class="hand-chip" id="btnReclaim" type="button" hidden>收回控制权</button>
+            <button class="hand-chip" id="btnTakeover" type="button" hidden>托管</button>
             <button class="hand-chip" id="btnShowBottom" type="button" hidden>底牌</button>
             <em class="hand-role" id="handRole"></em>
           </span>
@@ -436,6 +448,76 @@
 </div>
 
 <!-- ============================================================
+     狼人杀（联机专属 · 对话模式）
+     与牌桌完全不同：没有牌面，只有身份卡 + 玩家席 + 对话流。
+     ============================================================ -->
+<div class="screen" id="screenWerewolf" hidden>
+  <div class="topbar">
+    <div class="topbar-left">
+      <button class="icon-btn" id="wwBack" aria-label="返回主页" title="返回主页">
+        <svg viewBox="0 0 32 32" fill="none"><path d="M19 9l-7 7 7 7" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      </button>
+      <span class="brand-text"><b>狼人杀</b></span>
+    </div>
+    <div class="topbar-right">
+      <span class="ww-chip" id="wwPhaseChip">夜晚</span>
+      <span class="ww-code" id="wwRoomCode">------</span>
+    </div>
+  </div>
+
+  <main class="ww">
+    <!-- 身份卡：只显示「你」的身份；主持人显示上帝视角 -->
+    <section class="surface ww-card-id">
+      <div class="surface-head"><b>你的身份</b><span class="field-hint" id="wwRoundText">—</span></div>
+      <div class="ww-id-body" id="wwIdBody"></div>
+    </section>
+
+    <!-- 玩家席：主持人看得到全部角色，玩家只看得到自己和已公开的 -->
+    <section class="surface">
+      <div class="surface-head"><b>玩家</b><span class="field-hint" id="wwAliveHint"></span></div>
+      <div class="ww-players" id="wwPlayers"></div>
+    </section>
+
+    <!-- 投票：主持人发起，存活玩家投票；公布前只有主持人和本人看得到自己的票 -->
+    <section class="surface ww-card-vote" id="wwVoteCard" hidden>
+      <div class="surface-head"><b>投票</b><span class="field-hint" id="wwVoteHint"></span></div>
+      <div class="ww-vote-body" id="wwVoteBody"></div>
+      <div class="ww-vote-actions" id="wwVoteActions" hidden>
+        <button class="btn btn-ghost btn-sm" id="wwVoteStart">发起投票</button>
+        <button class="btn btn-primary btn-sm" id="wwVoteEnd">结束并公布</button>
+        <button class="btn btn-ghost btn-sm" id="wwVoteCancelBtn">取消</button>
+      </div>
+    </section>
+
+    <!-- 对话流：裁判已按可见性裁剪，前端只负责渲染 -->
+    <section class="surface ww-card-chat">
+      <div class="surface-head"><b>对局对话</b><span class="field-hint" id="wwChatHint"></span></div>
+      <div class="ww-log" id="wwLog"></div>
+      <div class="ww-composer">
+        <div class="ww-target-row" id="wwTargetRow" hidden>
+          <span class="ww-target-label">发给</span>
+          <select id="wwTarget"></select>
+        </div>
+        <div class="ww-phrases" id="wwPhrases" hidden></div>
+        <div class="ww-input-row">
+          <input id="wwInput" type="text" maxlength="200" placeholder="输入消息…" autocomplete="off">
+          <button class="btn btn-primary" id="wwSend">发送</button>
+        </div>
+        <div class="ww-mod-actions" id="wwModActions" hidden>
+          <button class="btn btn-ghost" id="wwEnd">结束对局</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- 胜负判定 / 下一局：结束后由主持人选赢家，再开下一局 -->
+    <section class="surface ww-card-end" id="wwEndCard" hidden>
+      <div class="surface-head"><b>本局结果</b><span class="field-hint" id="wwEndHint"></span></div>
+      <div class="ww-end-body" id="wwEndBody"></div>
+    </section>
+  </main>
+</div>
+
+<!-- ============================================================
      面板层（桌面：右侧抽屉；移动：全屏面板）
      ============================================================ -->
 <div class="scrim" id="scrim" hidden></div>
@@ -463,6 +545,10 @@
     <div class="group">
       <span class="group-label">本局信息</span>
       <div class="surface info-list">
+        <!-- 房间号：仅联机时显示（renderInfo 控制），点一下复制 -->
+        <div class="info-row" id="rowRoom" hidden><span class="k">房间号</span>
+          <span class="v"><button class="hand-chip" id="roomCodeChip" type="button" title="点击复制房间号">—</button></span>
+        </div>
         <div class="info-row" id="rowPass"><span class="k">传牌方向</span><span class="v" id="infoPass">—</span></div>
         <div class="info-row"><span class="k">已打墩数</span><span class="v" id="infoTrick">0 / 13</span></div>
         <div class="info-row" id="rowHearts"><span class="k" id="kHearts">红心已出</span><span class="v" id="infoHearts">0 张</span></div>
@@ -499,6 +585,17 @@
         <div class="link-row" id="settingsThresholdRow" hidden><span>终局分数</span><em id="setThresholdValue">−1000</em></div>
       </div>
       <p class="group-note">这些项都在主页的配置区调整，改动会在下一局生效。</p>
+    </div>
+
+    <div class="group">
+      <span class="group-label">调试</span>
+      <div class="surface group-card">
+        <div class="switch-row">
+          <span class="switch-text">显示 AI 手牌<i>左下角浮窗实时列出各家暗牌，用来核对 AI 的出牌判断；联机模式看不到别人的牌</i></span>
+          <button class="switch" id="swPeekAI" role="switch" aria-checked="false" aria-label="显示 AI 手牌"></button>
+        </div>
+      </div>
+      <p class="group-note">也可以在地址栏加 <code>?peek=1</code>，或在控制台执行 <code>__game.setPeek(true)</code>。</p>
     </div>
 
     <div class="group">
@@ -707,12 +804,13 @@
   </div>
 </div>
 
-<!-- 亮牌 · 仅拱猪 -->
+<!-- 亮牌：拱猪「卖牌」与斗地主「明牌」共用同一个弹窗版式（保持 UI 一致）。
+     标题 / 说明 / 按钮文案由 JS 按模式改写（#sellTitle / #sellLead）。 -->
 <div class="overlay" id="ovSell" hidden>
   <div class="modal">
     <div class="modal-head">
-      <h2>亮牌</h2>
-      <p class="lead">下面是你这一局的全部手牌。<b>可亮的是猪 / 羊 / 变压器 / 红桃 A</b>，
+      <h2 id="sellTitle">亮牌</h2>
+      <p class="lead" id="sellLead">下面是你这一局的全部手牌。<b>可亮的是猪 / 羊 / 变压器 / 红桃 A</b>，
         其余灰显的牌不能亮。亮牌后这张牌的分值翻倍；谁收下，谁承担翻倍后的分值。</p>
     </div>
     <div class="sell-grid" id="sellCards"></div>
@@ -801,7 +899,7 @@
 
       <div class="joinc-row">
         <span>你的昵称</span>
-        <input class="player-name joinc-name" id="joincName" maxlength="10" value="玩家" aria-label="昵称">
+        <input class="player-name joinc-name" id="joincName" maxlength="10" placeholder="玩家昵称" aria-label="昵称">
       </div>
 
       <p class="joinc-note">
@@ -818,9 +916,23 @@
   </main>
 </div>
 
+<!-- 调试：查看 AI 手牌。默认关闭，在「设置 → 调试」里打开，或地址栏加 ?peek=1。
+     浮在左下角、不进牌桌网格，因此开开关关不会影响牌桌布局。
+     ⚠️ 必须放在所有 <script> **之前**：app.js 是同步脚本，运行时后面的 DOM 还没解析到，
+        $(...) 会拿到 null（turnTimer / toastWrap 在脚本之后是因为它们只做惰性取用）。 -->
+<aside class="peek-dock" id="peekDock" hidden aria-label="AI 手牌调试">
+  <div class="peek-head">
+    <b>AI 手牌</b>
+    <span class="peek-note" id="peekNote">调试用 · 仅单机可见</span>
+    <button class="peek-close" id="peekClose" type="button" aria-label="关闭">×</button>
+  </div>
+  <div class="peek-rows" id="peekRows"></div>
+</aside>
+
 <script src="hearts.js"></script>
 <script src="gongzhu.js"></script>
 <script src="ddz.js"></script>
+<script src="werewolf.js"></script>
 <script src="players.js"></script>
 <script src="qr.js"></script>
 <script src="net-invite.js"></script>
@@ -834,5 +946,6 @@
 <!-- 回合计时器：浮于牌桌底部中央，醒目；层级高于弹窗，传牌/亮牌阶段也能看到 -->
 <span class="turn-timer" id="turnTimer" hidden>⏱ <b class="t-sec">15</b>s</span>
 <div class="toast-wrap" id="toastWrap" aria-live="polite"></div>
+
 </body>
 </html>

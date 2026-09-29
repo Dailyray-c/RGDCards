@@ -42,6 +42,14 @@
   --danger: #D93A3A;
   --warn: #C9821B;
 
+  /* 狼人杀模式色：夜色靛紫 */
+  --werewolf: #5B4B8A;
+  --werewolf-soft: #EFEBF8;
+  --wolf: #B23A48;          /* 狼人阵营 */
+  --wolf-soft: #FBEDEF;
+  --good: #2E7D6B;          /* 好人阵营 */
+  --good-soft: #E8F3F0;
+
   /* 当前模式色（由 body[data-mode] 切换） */
   --mode: var(--hearts);
   --mode-soft: var(--hearts-soft);
@@ -93,6 +101,12 @@
 body[data-mode="gongzhu"] {
   --mode: var(--gongzhu);
   --mode-soft: var(--gongzhu-soft);
+}
+
+/* 狼人杀：夜色靛紫（对话玩法，与牌类模式色区分开） */
+body[data-mode="werewolf"] {
+  --mode: var(--werewolf);
+  --mode-soft: var(--werewolf-soft);
 }
 
 * { box-sizing: border-box; }
@@ -488,6 +502,8 @@ button.link-row:hover { color: var(--mode); }
 }
 .mode-mark svg { width: 26px; height: 26px; }
 .mode-card[data-mode="gongzhu"] .mode-mark { color: var(--gongzhu); background: var(--gongzhu-soft); }
+.mode-card[data-mode="ddz"] .mode-mark { color: var(--gold); background: var(--gold-soft); }
+.mode-card[data-mode="werewolf"] .mode-mark { color: var(--werewolf); background: var(--werewolf-soft); }
 
 .radio {
   width: 20px; height: 20px;
@@ -498,6 +514,8 @@ button.link-row:hover { color: var(--mode); }
 }
 .mode-card[data-mode="hearts"].is-on { border-color: var(--hearts); }
 .mode-card[data-mode="gongzhu"].is-on { border-color: var(--gongzhu); }
+.mode-card[data-mode="ddz"].is-on { border-color: var(--gold); }
+.mode-card[data-mode="werewolf"].is-on { border-color: var(--werewolf); }
 .mode-card[data-mode="hearts"].is-on .radio {
   border-color: var(--hearts);
   background: var(--hearts);
@@ -506,6 +524,16 @@ button.link-row:hover { color: var(--mode); }
 .mode-card[data-mode="gongzhu"].is-on .radio {
   border-color: var(--gongzhu);
   background: var(--gongzhu);
+  box-shadow: inset 0 0 0 4px #fff;
+}
+.mode-card[data-mode="ddz"].is-on .radio {
+  border-color: var(--gold);
+  background: var(--gold);
+  box-shadow: inset 0 0 0 4px #fff;
+}
+.mode-card[data-mode="werewolf"].is-on .radio {
+  border-color: var(--werewolf);
+  background: var(--werewolf);
   box-shadow: inset 0 0 0 4px #fff;
 }
 
@@ -1813,6 +1841,11 @@ kbd {
 .lobby-code-hint { font-size: 12px; color: var(--text-3); text-align: center; }
 
 .lobby-seats { display: flex; flex-direction: column; gap: 8px; }
+/* 座位多时（狼人杀 8~12 人）改多列网格，避免竖着排一长条 */
+.lobby-seats.is-many {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(210px, 1fr));
+}
 .lobby-seat {
   display: flex;
   align-items: center;
@@ -3096,4 +3129,272 @@ body[data-mode="ddz"] .ddz-bid-buttons .btn-primary:hover {
   .peek-dock { left: 8px; bottom: 8px; width: calc(100vw - 16px); max-height: 38vh; }
   .peek-name { width: 64px; }
   .peek-chip { font-size: 10.5px; padding: 2px 4px; }
+}
+
+/* ============================================================
+ * 狼人杀（联机专属 · 对话模式）
+ *
+ * 与牌桌无关的一整套界面：身份卡 / 玩家席 / 对话流 / 主持人控制台。
+ * 沿用既有 token（--ctl-h* / --r-* / --mode*），不新增写死尺寸。
+ * ============================================================ */
+
+.ww {
+  max-width: 920px;
+  margin: 0 auto;
+  padding: 20px 20px 40px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+/* ---- 顶栏状态 ---- */
+.ww-chip {
+  display: inline-flex; align-items: center;
+  height: var(--ctl-h-sm); padding: 0 12px;
+  border-radius: var(--r-pill);
+  font-size: 12.5px; font-weight: 600;
+  background: var(--inset); color: var(--text-2);
+}
+.ww-chip[data-phase="night"] { background: var(--werewolf); color: #fff; }
+.ww-chip[data-phase="day"] { background: var(--gold-soft); color: var(--gold); }
+.ww-chip[data-phase="end"] { background: var(--inset); color: var(--text-3); }
+.ww-code {
+  font-size: 13px; font-weight: 700; letter-spacing: .08em;
+  color: var(--text-2); font-variant-numeric: tabular-nums;
+}
+
+/* ---- 身份卡 ---- */
+.ww-id-body { padding: 2px 0; }
+.ww-id {
+  display: flex; flex-direction: column; gap: 4px;
+  padding: 14px 16px;
+  border-radius: var(--r-md);
+  background: var(--inset-2);
+  border: 1px solid var(--line-2);
+}
+.ww-id.is-mod { background: var(--werewolf-soft); border-color: var(--werewolf); }
+.ww-id-name { font-size: 20px; font-weight: 700; color: var(--text-1); }
+.ww-id.camp-wolf .ww-id-name { color: var(--wolf); }
+.ww-id.camp-good .ww-id-name { color: var(--good); }
+.ww-id.is-none .ww-id-name { color: var(--text-3); }
+.ww-id-desc { font-size: 12.5px; color: var(--text-2); }
+
+/* ---- 玩家席 ---- */
+.ww-players { display: flex; flex-direction: column; gap: 8px; }
+.ww-player {
+  display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+  padding: 10px 12px;
+  border: 1px solid var(--line-2); border-radius: var(--r-md);
+  background: var(--inset-2);
+}
+.ww-player.is-me { border-color: var(--mode); background: var(--mode-soft); }
+.ww-player.is-dead { opacity: .55; }
+.ww-player.is-dead .ww-p-name { text-decoration: line-through; }
+.ww-p-name { font-size: 14px; font-weight: 600; color: var(--text-1); }
+.ww-role {
+  font-style: normal; font-size: 11.5px;
+  padding: 2px 8px; border-radius: var(--r-pill);
+  background: var(--inset); color: var(--text-2);
+}
+.ww-role.is-mod { background: var(--werewolf-soft); color: var(--werewolf); }
+.ww-role.is-hidden { color: var(--text-3); }
+.ww-role.camp-wolf { background: var(--wolf-soft); color: var(--wolf); }
+.ww-role.camp-good { background: var(--good-soft); color: var(--good); }
+.ww-p-state { font-size: 11.5px; color: var(--text-3); }
+.ww-p-rev { font-size: 11px; color: var(--gold); }
+.ww-p-ops { margin-left: auto; display: flex; gap: 6px; }
+.ww-p-btn {
+  height: var(--ctl-h-sm); padding: 0 10px;
+  font-size: 12px; border-radius: var(--r-sm);
+  border: 1px solid var(--line-3);
+  background: var(--surface); color: var(--text-2);
+  cursor: pointer;
+}
+.ww-p-btn:disabled { opacity: .45; cursor: default; }
+
+/* ---- 对话流 ---- */
+.ww-card-chat { display: flex; flex-direction: column; }
+.ww-log {
+  display: flex; flex-direction: column; gap: 8px;
+  min-height: 180px; max-height: 44vh;
+  overflow-y: auto;
+  padding: 12px;
+  background: var(--inset-2);
+  border: 1px solid var(--line-2); border-radius: var(--r-md);
+}
+.ww-empty { margin: 0; font-size: 12.5px; color: var(--text-3); }
+.ww-msg {
+  padding: 8px 10px;
+  border: 1px solid var(--line-2); border-radius: var(--r-md);
+  background: var(--surface);
+}
+.ww-msg.is-mine { background: var(--mode-soft); border-color: var(--mode); }
+/* 私密消息：左侧竖条标出「只有特定对象看得到」 */
+.ww-msg.is-private { border-left: 3px solid var(--werewolf); }
+.ww-msg-head {
+  display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap;
+  font-size: 11.5px; color: var(--text-3);
+}
+.ww-msg-head b { font-size: 12.5px; color: var(--text-1); }
+.ww-msg-to { color: var(--werewolf); font-weight: 600; }
+.ww-msg-phase { margin-left: auto; }
+.ww-msg-text {
+  margin-top: 3px; font-size: 13.5px; color: var(--text-1);
+  word-break: break-word; white-space: pre-wrap;
+}
+
+/* ---- 输入区 ---- */
+.ww-composer { display: flex; flex-direction: column; gap: 8px; margin-top: 10px; }
+.ww-target-row { display: flex; align-items: center; gap: 8px; }
+.ww-target-label { font-size: 12.5px; color: var(--text-2); }
+#wwTarget {
+  flex: 1; min-width: 0; height: var(--ctl-h-sm);
+  padding: 0 8px; font-size: 13px;
+  border: 1px solid var(--line-3); border-radius: var(--r-sm);
+  background: var(--surface); color: var(--text-1);
+}
+.ww-phrases { display: flex; flex-wrap: wrap; gap: 6px; }
+.ww-chip-btn {
+  height: var(--ctl-h-sm); padding: 0 10px;
+  font-size: 12px; border-radius: var(--r-pill);
+  border: 1px solid var(--line-3);
+  background: var(--surface); color: var(--text-2);
+  cursor: pointer;
+}
+.ww-chip-btn:hover { border-color: var(--mode); color: var(--mode); }
+/* 阶段切换口令（天黑请闭眼 / 天亮了…）：点了会自动切昼夜，视觉上要区分开 */
+.ww-chip-btn.is-switch {
+  display: inline-flex; align-items: center; gap: 6px;
+  border-color: var(--werewolf); color: var(--werewolf); font-weight: 600;
+}
+.ww-chip-btn.is-switch:hover { background: var(--werewolf-soft); }
+.ww-chip-tag {
+  font-style: normal; font-size: 10.5px; font-weight: 500;
+  padding: 1px 5px; border-radius: var(--r-pill);
+  background: var(--werewolf); color: #fff;
+}
+/* 只发给特定群体的口令（如「狼人请确认今晚要袭击的玩家」）：虚线以示私密 */
+.ww-chip-btn.is-private { border-style: dashed; border-color: var(--line-3); color: var(--text-2); }
+.ww-chip-btn.is-private .ww-chip-tag { background: var(--text-2); }
+.ww-input-row { display: flex; gap: 8px; }
+#wwInput {
+  flex: 1; min-width: 0; height: var(--ctl-h);
+  padding: 0 12px; font-size: 14px;
+  border: 1px solid var(--line-3); border-radius: var(--r-sm);
+  background: var(--surface); color: var(--text-1);
+}
+#wwInput:disabled { background: var(--inset); color: var(--text-3); }
+.ww-mod-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+
+/* ---- 大厅里的角色配置块 ---- */
+.lobby-set-col { display: flex; flex-direction: column; gap: 10px; width: 100%; }
+.ww-cfg-block {
+  display: flex; flex-direction: column; gap: 8px;
+  padding: 10px 12px;
+  border: 1px dashed var(--line-3); border-radius: var(--r-md);
+  background: var(--inset-2);
+}
+.ww-cfg-head {
+  display: flex; align-items: baseline; justify-content: space-between;
+  gap: 8px; flex-wrap: wrap;
+  font-size: 13px; font-weight: 600; color: var(--text-1);
+}
+.ww-cfg-head em { font-style: normal; font-size: 11.5px; font-weight: 400; color: var(--text-3); }
+.ww-cfg-row { display: flex; align-items: center; gap: 6px; }
+.ww-cfg-name {
+  flex: 1; min-width: 0; height: var(--ctl-h-sm);
+  padding: 0 8px; font-size: 13px;
+  border: 1px solid var(--line-3); border-radius: var(--r-sm);
+  background: var(--surface); color: var(--text-1);
+}
+.ww-cfg-step {
+  flex: none; width: 28px; height: var(--ctl-h-sm);
+  display: inline-flex; align-items: center; justify-content: center;
+  font-size: 14px; line-height: 1;
+  border: 1px solid var(--line-3); border-radius: var(--r-sm);
+  background: var(--surface); color: var(--text-2); cursor: pointer;
+}
+.ww-cfg-count {
+  min-width: 22px; text-align: center;
+  font-size: 13px; font-weight: 600; color: var(--text-1);
+  font-variant-numeric: tabular-nums;
+}
+.ww-cfg-del {
+  flex: none; height: var(--ctl-h-sm); padding: 0 8px;
+  font-size: 12px; border-radius: var(--r-sm);
+  border: 1px solid var(--line-3);
+  background: var(--surface); color: var(--text-2); cursor: pointer;
+}
+.ww-cfg-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+.ww-cfg-empty { margin: 0; font-size: 12px; color: var(--text-3); }
+
+/* 同伴角标（狼人互认同伴时显示） */
+.ww-p-peer {
+  font-size: 11px; padding: 2px 8px; border-radius: var(--r-pill);
+  background: var(--wolf-soft); color: var(--wolf); font-weight: 600;
+}
+
+/* 系统公告：死亡提示 / 投票结果 / 换局 —— 居中灰底，区别于玩家发言 */
+.ww-msg.is-system {
+  background: transparent; border: 1px dashed var(--line-3);
+  text-align: center; padding: 6px 10px;
+}
+.ww-msg.is-system .ww-msg-text {
+  font-size: 12.5px; color: var(--text-2); font-weight: 500;
+}
+
+/* ---- 投票 ---- */
+.ww-vote-body { display: flex; flex-direction: column; gap: 8px; }
+.ww-vote-opts { display: flex; flex-wrap: wrap; gap: 8px; }
+.ww-vote-opt {
+  height: var(--ctl-h); padding: 0 14px;
+  font-size: 13.5px; font-weight: 500;
+  border: 1px solid var(--line-3); border-radius: var(--r-pill);
+  background: var(--surface); color: var(--text-1);
+  cursor: pointer;
+}
+.ww-vote-opt.is-static { cursor: default; display: inline-flex; align-items: center; }
+.ww-vote-opt.is-picked {
+  border-color: var(--mode); background: var(--mode-soft); color: var(--mode); font-weight: 600;
+}
+.ww-vote-tip { margin: 0; font-size: 12px; color: var(--text-3); }
+.ww-vote-rows { display: flex; flex-direction: column; gap: 4px; }
+.ww-vote-row {
+  display: flex; justify-content: space-between; gap: 10px;
+  padding: 6px 10px; border-radius: var(--r-sm);
+  background: var(--inset-2); font-size: 13px; color: var(--text-2);
+}
+.ww-vote-row.is-top { background: var(--mode-soft); color: var(--text-1); font-weight: 600; }
+.ww-vote-flat { margin: 0; font-size: 13.5px; font-weight: 600; color: var(--text-1); }
+.ww-vote-flat.is-tie { color: var(--warn); }
+.ww-vote-actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 10px; }
+
+/* ---- 本局结果 / 下一局 ---- */
+.ww-end-body { display: flex; flex-direction: column; gap: 10px; }
+.ww-end-pick { display: flex; gap: 8px; flex-wrap: wrap; }
+.ww-end-flat {
+  margin: 0; font-size: 18px; font-weight: 700; color: var(--mode);
+}
+.ww-end-next { display: flex; }
+.ww-end-hist {
+  display: flex; flex-direction: column; gap: 4px;
+  padding-top: 8px; border-top: 1px solid var(--line-2);
+}
+.ww-end-hist-t { font-size: 11.5px; color: var(--text-3); }
+.ww-end-row {
+  display: flex; justify-content: space-between; gap: 10px;
+  font-size: 12.5px; color: var(--text-2);
+}
+.ww-end-row b { color: var(--text-1); font-weight: 600; }
+
+@media (max-width: 900px) {
+  .ww { padding: 14px 12px 32px; }
+  .ww-log { max-height: 40vh; }
+  .ww-p-ops { margin-left: 0; width: 100%; }
+  .ww-code { display: none; }
+  .ww-vote-opt { padding: 0 12px; font-size: 13px; }
+  /* 手机版收掉口令上的「自动入夜」等角标：屏窄字挤，语义靠按钮分组与提示兜底 */
+  .ww-chip-tag { display: none; }
+  .ww-phrases { gap: 5px; }
+  .ww-chip-btn { padding: 0 9px; font-size: 11.5px; }
 }

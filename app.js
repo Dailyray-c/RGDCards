@@ -143,6 +143,7 @@ const state = {
   collectedCards: [[], [], [], []], // 每家本局收到的牌（拱猪结算必需）
   sold: [],                     // 本局亮出的牌（牌码数组，规则引擎读取）
   soldBy: {},                   // 亮牌 → 座位号（UI 展示「谁亮的」，引擎不依赖）
+  ming: false,                  // 斗地主：地主是否明牌（亮出全部手牌 → 倍数 ×2，仅单机）
   difficulty: 'normal',
   settings: {
     moonSelf: true,        // true=自己 -26；false=其他三家 +26
@@ -248,10 +249,11 @@ function resetDdzState() {
  * ⚠️ 只切模式与文案，**不自动开局** —— 玩家必须点「新的一局」才开始。
  *    否则误点一下顶栏就把进行中的牌局冲掉了。 */
 function setMode(key) {
-  const k = RULES_BY_MODE[key] ? key : 'hearts';
+  // 狼人杀没有牌规则引擎（RULES_BY_MODE 里没有它），但仍是合法模式
+  const k = (RULES_BY_MODE[key] || key === 'werewolf') ? key : 'hearts';
   if (state.mode === k) return;
   state.mode = k;
-  if (k !== 'ddz') setRules(k);
+  if (k !== 'ddz' && k !== 'werewolf') setRules(k);
 
   // 上一局的残留（传牌窗 / 亮牌窗 / 叫分窗 / 底牌窗 / 结算窗）必须关掉，否则会盖在新桌面上
   $('ovPass').hidden = true;
@@ -355,6 +357,14 @@ function applyModeChrome() {
   if (bottomBtn && !ddz) bottomBtn.hidden = true;
   $('ddzActions').hidden = !ddz;
 
+  // 狼人杀没有牌局选项：把牌类专属的开关整块收掉，留着只会误导
+  const ww = isWerewolf();
+  if (ww) {
+    ['gzHomeOpts', 'rowSell', 'rowMoonOpt', 'rowHearts', 'rowQueen', 'rowExtra', 'rowPass', 'rowPassOpt',
+      'settingsMoonRow', 'settingsPassRow', 'settingsSellRow', 'settingsThresholdRow']
+      .forEach((id) => { const el = $(id); if (el) el.hidden = true; });
+  }
+
   if (ddz) {
     $('kHearts').textContent = '地主';
     $('kQueen').textContent = '当前叫分';
@@ -390,6 +400,21 @@ function applyModeChrome() {
   $('modeTipBody').textContent = ddz
     ? '斗地主：叫分后地主拿 3 张底牌，地主或农民一方先出完牌即结算。在主页点「开始新的一局」可直接对两个 AI 开打，也可以在主页下方建房 / 加入房间联机三人同桌。'
     : (gz ? `任一家累计分 ≤ ${state.settings.threshold} 即终局，累计分最高者获胜。详细规则见「帮助」。` : '任一玩家累计达到 100 分即终局，总分最低者获胜。详细规则见「帮助」。');
+
+  // 狼人杀：规则 / 提示整段换成对话玩法的说明（上面按 hearts 落的值要覆盖掉）
+  if (ww) {
+    $('rulesTitle').textContent = '狼人杀规则';
+    $('rulesLead').textContent = '联机专属的对话玩法：开局前自定角色与主持人，随机抽角色后由主持人用私密频道推进。';
+    $('opsFlow').textContent = '主持人可定向喊话（如「狼人请睁眼」只发给狼人），其他玩家看不到；夜晚玩家只能私聊主持人，白天可公开发言。';
+    $('rulesHearts').hidden = true;
+    $('rulesGongzhu').hidden = true;
+    $('rulesDdz').hidden = true;
+    $('scoreHearts').hidden = true;
+    $('scoreGongzhu').hidden = true;
+    $('scoreDdz').hidden = true;
+    $('modeTipTitle').textContent = '狼人杀 · 联机专属';
+    $('modeTipBody').textContent = '需建房 / 加入房间后开局：先指定一名玩家为主持人、配置角色池，开局随机抽角色，之后由主持人推进昼夜与私密对话。';
+  }
 
   renderGameChrome();
   syncSettingsUI();
@@ -436,7 +461,12 @@ function pushHistory(rec) {
 }
 function clearHistory() { lsSet(LS_HISTORY, '[]'); renderHistory(); }
 
-const MODE_NAME = { hearts: '红心大战', gongzhu: '拱猪', ddz: '斗地主' };
+const MODE_NAME = { hearts: '红心大战', gongzhu: '拱猪', ddz: '斗地主', werewolf: '狼人杀' };
+/** 狼人杀是「联机专属」：没有牌面与出牌循环，单机下发牌毫无意义 */
+const ONLINE_ONLY_MODES = ['werewolf'];
+const isWerewolf = () => state.mode === 'werewolf';
+/** 邀请页临时切过主题色时，记着进页前的玩法，拒绝邀请时还原（见 handleInviteOnLoad / declineInvite） */
+let inviteChromePrev = null;
 
 function historyRowHTML(rec) {
   const fmt = (v) => (v > 0 ? '+' + v : String(v));
@@ -475,6 +505,7 @@ function showScreen(name) {
     game: $('screenGame'),
     lobby: $('screenLobby'),
     join: $('screenJoin'),
+    werewolf: $('screenWerewolf'),
   };
   Object.keys(screens).forEach((k) => {
     const el = screens[k];
@@ -536,6 +567,93 @@ function renderHintbar() {
 function setAutoHint(text) { hintAuto = text || ''; renderHintbar(); }
 function clearManualHint() { hintManual = ''; hintKind = ''; }
 
+/* ============================================================
+ * 调试：查看 AI 手牌
+ * ------------------------------------------------------------
+ * 核对 AI 决策时（典型场景：「它剩 2 张为什么不出」）光看日志不够，得看到它手里剩什么。
+ * 浮窗固定左下角、不进牌桌 grid —— 开开关关都不会挤压 / 重排牌桌。
+ * 三种打开方式：设置面板 → 调试 → 显示 AI 手牌 / 地址栏 ?peek=1 / 控制台 __game.setPeek(true)
+ * ============================================================ */
+const PEEK_LS = 'ncm.peek';
+let peekAI = false;
+
+/**
+ * 取某家的真实手牌。联机模式下别人的牌只下发「张数」，本地是占位符 'XX' → 返回 null。
+ * 这是唯一的手牌读取入口，别在别处直接摸 state.players[i].hand —— 联机会读到一堆 'XX'。
+ */
+function peekHand(seat) {
+  const p = state.players[seat];
+  if (!p || !p.hand || !p.hand.length) return null;
+  for (const c of p.hand) if (c !== 'XX') return p.hand.slice();
+  return null;
+}
+
+function setPeek(on) {
+  peekAI = !!on;
+  lsSet(PEEK_LS, peekAI ? '1' : '0');
+  const sw = $('swPeekAI');
+  if (sw) {
+    sw.classList.toggle('on', peekAI);
+    sw.setAttribute('aria-checked', String(peekAI));
+  }
+  renderPeek();
+}
+
+function renderPeek() {
+  const dock = $('peekDock');
+  if (!dock) return;
+  dock.hidden = !peekAI;
+  if (!peekAI) return;
+  const rows = $('peekRows');
+  rows.innerHTML = '';
+  let shown = 0;
+  for (let i = 0; i < 4; i++) {
+    const p = state.players[i];
+    if (!p) continue;
+    const hand = peekHand(i);
+    const row = document.createElement('div');
+    row.className = 'peek-row';
+
+    const name = document.createElement('div');
+    name.className = 'peek-name';
+    const nm = document.createElement('span');
+    nm.textContent = SEAT_LABEL[i];
+    const em = document.createElement('em');
+    const role = isDdz() && state.roles[i] ? (state.roles[i] === 'landlord' ? '地主' : '农民') : '';
+    em.textContent = `${role ? role + ' · ' : ''}${hand ? hand.length : (p.handSize || 0)} 张`;
+    name.appendChild(nm);
+    name.appendChild(em);
+    row.appendChild(name);
+
+    const box = document.createElement('div');
+    box.className = 'peek-cards';
+    if (hand && hand.length) {
+      // ⚠️ 这里刻意用「文字牌码」而不是 cardEl 的迷你牌：
+      //    34×47 的缩略牌角标会互相叠、黑红看不清，调试浮窗要的是一眼可读。
+      for (const c of hand) {
+        const chip = document.createElement('span');
+        const suit = isDdz() ? D.suitOf(c) : H.suitOf(c);
+        chip.className = 'peek-chip' + (suit === 'H' || suit === 'D' ? ' is-red' : '');
+        chip.textContent = isDdz() ? cardTextDdz(c) : cardText(c);
+        chip.dataset.card = c;   // 自动化测试用它对账「浮窗渲染 ↔ 真实手牌」
+        box.appendChild(chip);
+      }
+      shown++;
+    } else {
+      const tip = document.createElement('span');
+      tip.className = 'peek-empty';
+      // 联机只下发张数（'XX' 占位）→ null；单机空手牌 = 已出完
+      tip.textContent = hand ? '（已出完）'
+        : (ONLINE_ACTIVE() ? '联机模式 · 看不到别人的牌' : '（还没发牌）');
+      box.appendChild(tip);
+    }
+    row.appendChild(box);
+    rows.appendChild(row);
+  }
+  const note = $('peekNote');
+  if (note) note.textContent = shown ? '调试用 · 仅单机可见' : '调试用 · 当前没有可显示的暗牌';
+}
+
 function render() {
   updateTurnTimer();
   renderTakeoverChip();
@@ -548,6 +666,7 @@ function render() {
   renderMyRoundScore();
   renderTrick();
   renderGameChrome();
+  renderPeek();
   // 叫分弹窗开着时，弹窗里的「各家叫分」要跟着最新状态刷新 ——
   // 别人（AI / 其他玩家）叫完分，我这边不必等下一次交互就能看到。
   const bidBox = $('ovBid');
@@ -576,7 +695,7 @@ function renderSeats() {
       // 斗地主：身份没定（叫/抢地主中，roles[i] 为 null）不显示「农民/地主」，
       // 只报剩牌与累计分 —— 免得玩家误以为角色已经分好了。
       const ddzRole = isDdz() && state.roles[i]
-        ? (state.roles[i] === 'landlord' ? '地主' : '农民')
+        ? (state.roles[i] === 'landlord' ? (state.ming ? '地主·明牌×2' : '地主') : '农民')
         : '';
       meta.innerHTML = state.phase === 'idle'
         ? '<b>等待发牌</b>'
@@ -691,6 +810,21 @@ function renderScore() {
 function renderInfo() {
   const ddz = isDdz();
   const gz = isGongzhu();
+  // 房间号：只有联机时亮出来（单机没有「房间」这回事，整行收掉）。
+  // 点 chip 复制 —— 局内想拉人时不用退回大厅。
+  const room = (typeof ONLINE_ACTIVE === 'function' && ONLINE_ACTIVE()
+    && ONLINE && typeof ONLINE.getRoom === 'function') ? ONLINE.getRoom() : null;
+  const rowRoom = $('rowRoom');
+  if (rowRoom) {
+    rowRoom.hidden = !room;
+    if (room) {
+      const chip = $('roomCodeChip');
+      if (chip && chip.dataset.code !== room.code) {
+        chip.textContent = room.code;
+        chip.dataset.code = room.code;
+      }
+    }
+  }
   if (ddz) {
     $('rowPass').hidden = true;
     $('infoTrick').textContent = `${state.moveSeq || 0} 手`;
@@ -700,8 +834,10 @@ function renderInfo() {
     $('infoQueen').textContent = state.bidStage === 'grab'
       ? `抢地主 ×${state.currentBid}`
       : (state.currentBid ? `叫分 ${state.currentBid} 分` : '待叫地主');
-    const mult = Math.pow(2, (state.bombCount || 0) + (state.hasRocket ? 1 : 0) + (state.grabCount || 0));
-    $('infoMoon').textContent = `${mult} 倍${state.hasRocket ? ' · 含王炸' : ''}`;
+    // ⚠️ 明牌 ×2 必须算进来，否则面板倍数和结算对不上
+    const mult = Math.pow(2, (state.bombCount || 0) + (state.hasRocket ? 1 : 0) + (state.grabCount || 0))
+      * (state.ming ? 2 : 1);
+    $('infoMoon').textContent = `${mult} 倍${state.hasRocket ? ' · 含王炸' : ''}${state.ming ? ' · 明牌' : ''}`;
     $('infoSell').textContent = '斗地主不亮牌';
     return;
   }
@@ -887,14 +1023,36 @@ function renderMyRoundScore() {
 function renderSoldBoard() {
   const board = $('soldBoard');
   const list = $('soldBoardList');
-  const sold = state.sold || [];
 
+  /* 斗地主：地主明牌 → 这里公开他的**实时剩余手牌**。
+     位置、配色、chip 版式都跟拱猪亮牌板一致，玩家一眼就知道「这是本局的公开赌注」。 */
+  if (isDdz()) {
+    const L = state.landlord;
+    const p = L >= 0 ? state.players[L] : null;
+    if (!state.ming || !p || state.phase === 'idle') {
+      board.hidden = true;
+      return;
+    }
+    board.hidden = false;
+    $('soldBoardTitle').textContent = `${SEAT_LABEL[L]} 明牌 · 倍数 ×2`;
+    const chips = p.hand.map((c) => {
+      const red = D.suitOf(c) === 'H' || D.suitOf(c) === 'D';
+      return `<span class="sold-chip"><span class="sold-chip-card${red ? ' red' : ''}">` +
+        `${cardTextDdz(c)}</span></span>`;
+    });
+    list.innerHTML =
+      `<span class="sold-chip sold-chip-count">剩 ${p.hand.length} 张</span>` + chips.join('');
+    return;
+  }
+
+  const sold = state.sold || [];
   // 只在拱猪、且有亮牌时展示（红心大战没有亮牌机制）
   if (!isGongzhu() || !sold.length || state.phase === 'idle') {
     board.hidden = true;
     return;
   }
   board.hidden = false;
+  $('soldBoardTitle').textContent = '本局亮牌';
 
   list.innerHTML = sold.map((c) => {
     const who = state.soldBy[c];
@@ -1603,6 +1761,16 @@ function openSellDialog() {
 function renderSellDialog() {
   const me = state.players[0];
   const wrap = $('sellCards');
+  const modal = wrap.closest('.modal');
+  if (modal) modal.classList.remove('modal-wide');
+  // ⚠️ 弹窗是拱猪与斗地主**共用的一份 DOM**，明牌改过的标题/说明/按钮必须在这里还原，
+  //    否则从斗地主切回拱猪，弹窗上会留着「明牌 ×2」的文案。
+  $('sellTitle').textContent = '亮牌';
+  $('sellLead').innerHTML =
+    '下面是你这一局的全部手牌。<b>可亮的是猪 / 羊 / 变压器 / 红桃 A</b>，' +
+    '其余灰显的牌不能亮。亮牌后这张牌的分值翻倍；谁收下，谁承担翻倍后的分值。';
+  $('sellSkip').textContent = '不亮牌';
+  $('sellConfirm').textContent = '确认亮牌';
   const sellables = me.hand.filter((c) => H.isSellable(c));
 
   const sig = me.hand.join(',');
@@ -2001,15 +2169,19 @@ function maybeCollectAnimOnline() {
  * （出最小牌 / 不叫 / 不亮 / 不出 / 不传）；同一座位连续超时达
  * LOCAL_TAKEOVER_AFTER 次（默认 2）则永久交由 AI 托管（把 HumanPlayer
  * 换成 AIPlayer，循环自然转入 AI 分支）。
- * 时限按阶段区分：出牌阶段 15s（LOCAL_TURN_TIMEOUT_MS，节奏要快）；
+ * 时限按阶段区分：出牌阶段 20s（LOCAL_TURN_TIMEOUT_MS，节奏要快）；
  * 叫/抢地主、亮牌、传牌等决策阶段放宽到 1 分钟（LOCAL_IDLE_TIMEOUT_MS），
  * 且这些阶段顶部不显示倒计时（updateTurnTimer 已按 phase==='playing' 收口）。
- * 与联机侧超时（net-client.js 的 maybeTimeoutCurrentActor）共用同一语义。
+ * 与联机侧超时（net-client.js 的 maybeTimeoutCurrentActor，TURN_TIMEOUT_MS=20000）共用同一语义。
  * ============================================================ */
-const LOCAL_TURN_TIMEOUT_MS = 15000;
+const LOCAL_TURN_TIMEOUT_MS = 20000;
 const LOCAL_IDLE_TIMEOUT_MS = 60000;   // 非出牌阶段（叫/抢地主、卖牌、传牌）的决策时限
 const LOCAL_TAKEOVER_AFTER = 2;
 const _localWaitTimers = {};            // seat -> setTimeout 句柄
+// 当前在途的「等待真人决策」解析器（手动托管用）：点「托管」即解出默认动作并转 AI
+let _humanWaitResolve = null;
+let _humanWaitSeat = -1;
+let _humanWaitDefault = null;
 // 测试可用 window.LOCAL_TURN_TIMEOUT_MS 覆盖（懒读取，设了立即生效）——
 // 覆盖值优先于分阶段时限，否则 e2e 在叫分/传牌阶段要真等 60s
 function localTurnTimeoutMs() {
@@ -2023,6 +2195,7 @@ function resetTurnStrikes() {
   state.turnStrikes = state.turnStrikes || {};
   Object.keys(_localWaitTimers).forEach((k) => clearTimeout(_localWaitTimers[k]));
   for (const k in _localWaitTimers) delete _localWaitTimers[k];
+  _humanWaitResolve = null; _humanWaitSeat = -1; _humanWaitDefault = null;
   state.turnStrikes = {};
 }
 
@@ -2036,14 +2209,30 @@ function resetTurnStrikes() {
 function withHumanTimeout(seat, wait, defaultFn, onTimeout) {
   return new Promise((resolve) => {
     let done = false;
-    // 启动可视倒计时（顶部计时器读取 state._turnDeadline）
+      // 启动可视倒计时（顶部计时器读取 state._turnDeadline）
     state._turnDeadline = Date.now() + localTurnTimeoutMs();
-    const fire = () => {
-      if (done) return;
-      done = true;
+    const cleanup = () => {
       state._turnDeadline = 0;
       clearTimeout(_localWaitTimers[seat]);
       _localWaitTimers[seat] = null;
+      if (_humanWaitSeat === seat) { _humanWaitResolve = null; _humanWaitSeat = -1; _humanWaitDefault = null; }
+    };
+    // 手动托管：解出一个默认动作让牌局继续，并立即把本座位转 AI
+    _humanWaitResolve = (manual) => {
+      if (done) return;
+      done = true;
+      cleanup();
+      if (manual) {
+        convertSeatToAI(seat);
+        resolve(defaultFn());
+      }
+    };
+    _humanWaitSeat = seat;
+    _humanWaitDefault = defaultFn;
+    const fire = () => {
+      if (done) return;
+      done = true;
+      cleanup();
       state.turnStrikes = state.turnStrikes || {};
       state.turnStrikes[seat] = (state.turnStrikes[seat] || 0) + 1;
       const takeover = state.turnStrikes[seat] >= LOCAL_TAKEOVER_AFTER;
@@ -2055,14 +2244,22 @@ function withHumanTimeout(seat, wait, defaultFn, onTimeout) {
     wait.then((val) => {
       if (done) return;
       done = true;
-      state._turnDeadline = 0;
-      clearTimeout(_localWaitTimers[seat]);
-      _localWaitTimers[seat] = null;
+      cleanup();
       state.turnStrikes = state.turnStrikes || {};
       state.turnStrikes[seat] = 0;     // 真人正常操作 → 重置连击计数
       resolve(val);
     });
   });
+}
+
+/**
+ * 手动 AI 托管（本地）：玩家主动把本座位交给 AI。
+ *   · 当前正等待真人决策 → 立即解挂起（用默认动作）并转 AI；
+ *   · 否则（轮到 AI / 还没轮到）→ 直接转 AI，下一轮起由 AI 出。
+ */
+function manualTakeoverLocal(seat) {
+  if (_humanWaitResolve && _humanWaitSeat === seat) { _humanWaitResolve(true); return; }
+  if (state.players[seat] && state.players[seat].isHuman) convertSeatToAI(seat);
 }
 
 /** 把某座位从真人控制器换成 AI 控制器（永久托管，直到换局） */
@@ -2159,9 +2356,15 @@ function updateTurnTimer() {
   // 计时器只在「出牌阶段」显示；叫/抢地主、卖牌、传牌、结算等阶段一律隐藏
   if (!state || state.phase !== 'playing') { el.hidden = true; return; }
   let deadline = 0;
-  // 联机：房主把倒计时起点写进了房间，所有客户端都能读到
-  if (typeof ONLINE_ACTIVE === 'function' && ONLINE_ACTIVE() && ONLINE && ONLINE.session && ONLINE.session.room && ONLINE.session.room.turnDeadline) {
-    deadline = ONLINE.session.room.turnDeadline;
+  // 联机：房主把倒计时起点写进了房间，所有客户端都能读到。
+  // ⚠️ 只在「轮到自己行动」时显示 —— 别人回合的倒计时不显示（避免盯着别家的表）。
+  if (typeof ONLINE_ACTIVE === 'function' && ONLINE_ACTIVE() && ONLINE && ONLINE.session && ONLINE.session.room) {
+    const r = ONLINE.session.room;
+    const mySeat = ONLINE.session.mySeat;
+    const myTurn = (r.turn === mySeat) || (r.phase === 'bidding' && r.bidTurn === mySeat)
+      || (r.phase === 'ming' && r.turn === mySeat);
+    if (!myTurn) { el.hidden = true; return; }
+    if (r.turnDeadline) deadline = r.turnDeadline;
   } else if (state && state._turnDeadline) {
     deadline = state._turnDeadline;
   }
@@ -2174,20 +2377,27 @@ function updateTurnTimer() {
   el.classList.toggle('is-warn', remain <= 5000);
 }
 
-/** 托管标识 + 「收回控制权」按钮：本地看 players[0].isHuman，联机看自己座位是否 away */
+/** 托管标识 + 「托管 / 收回控制权」按钮：两者互斥显示。
+ *  · 当前是 AI 在打（本地 players[0] 非真人 / 联机本座位 away 或 aiTakeover）→ 显示「收回控制权」
+ *  · 当前是真人控制且对局进行中 → 显示「托管」（主动交棒给 AI）
+ *  · 其它（大厅 / 结算 / 尚未开局）→ 两个都隐藏 */
 function renderTakeoverChip() {
-  const chip = document.getElementById('takeoverChip');
-  const btn = document.getElementById('btnReclaim');
-  if (!chip) return;
-  let taken = false;
+  const btnReclaim = document.getElementById('btnReclaim');
+  const btnTakeover = document.getElementById('btnTakeover');
+  let taken = false;     // AI 在代打
+  let human = false;     // 真人当前控制
   if (typeof ONLINE_ACTIVE === 'function' && ONLINE_ACTIVE() && ONLINE && ONLINE.session && ONLINE.session.mySeat >= 0 && ONLINE.session.room) {
     const s = ONLINE.session.room.seats && ONLINE.session.room.seats[ONLINE.session.mySeat];
     taken = !!(s && (s.away || s.aiTakeover));
+    human = !!(s && !s.away && !s.aiTakeover);
   } else if (state && state.players && state.players[0]) {
     taken = !state.players[0].isHuman;
+    human = state.players[0].isHuman;
   }
-  chip.hidden = !taken;
-  if (btn) btn.hidden = !taken;
+  // 对局进行中才允许托管 / 收回：idle / over / lobby 阶段不显示。
+  const active = !!(state.phase && state.phase !== 'idle' && state.phase !== 'over' && state.phase !== 'lobby');
+  if (btnReclaim) btnReclaim.hidden = !taken;
+  if (btnTakeover) btnTakeover.hidden = !(human && active);
 }
 
 // 计时器每 200ms 刷新（轻量；仅更新顶部数字，不触发整页渲染）
@@ -2393,7 +2603,7 @@ function waitForDdz(kind, myRun) {
       if (ddzWait && ddzWait.resolve === finish) ddzWait = null;
       resolve(value);
     };
-    const timer = setInterval(() => { if (myRun !== runId) finish(null); }, 150);
+    const timer = setInterval(() => { if (myRun !== runId) { finish(null); } }, 150);
     ddzWait = { kind, myRun, resolve: finish };
   });
 }
@@ -2427,6 +2637,7 @@ function dealDdz() {
   state.currentBid = 0;            // 当前最高叫分（0 = 尚无人叫）；抢地主阶段改为 2^抢次数
   state.callBid = 0;              // 底分 = 最高叫分（抢地主阶段不覆盖）
   state.baseBid = 1;
+  state.ming = false;             // 明牌是每局重新决定的，不能跨局残留
   state.highestBidder = -1;
   state.landlord = -1;
   state.roles = [null, null, null];
@@ -2460,6 +2671,7 @@ function startDdzRound() {
   state.collectedCards = [[], [], []];
   state.sold = [];
   state.soldBy = {};
+  state.ming = false;
   state.selectedPass = [];
   state.selectedSell = [];
   state.lastDeltas = [0, 0, 0];
@@ -2607,6 +2819,9 @@ async function ddzBidLoop(myRun) {
   if (myRun !== runId || state.phase !== 'playing') return;
   // 亮底牌 → 停几秒 → 飞向地主（与收牌动画同一套视觉）
   await showDdzBottomDeal(state.landlord, myRun);
+  if (myRun !== runId || state.phase !== 'playing') return;
+  // 明牌：地主收下底牌之后、出第一手之前决定（标准玩法，倍数 ×2）
+  await ddzMingStage(myRun);
   if (myRun !== runId || state.phase !== 'playing') return;
   await ddzPlayLoop(myRun);
 }
@@ -2760,6 +2975,85 @@ async function showDdzBottomDeal(landlord, myRun) {
   hideDdzDealLayer();
 }
 
+/* ============================================================
+ * 明牌（斗地主）
+ * ------------------------------------------------------------
+ * 标准玩法：地主收下 3 张底牌之后、出第一手牌之前，可以亮出自己的全部手牌，
+ * 本局输赢 ×2（亮牌板实时公开他的剩余手牌）。
+ * 弹窗**复用拱猪的 #ovSell**（同一个版式，只换标题 / 说明 / 按钮文案）——
+ * 两套玩法的「亮牌」在玩家眼里必须是同一件事。
+ * ⚠️ 只做单机：联机时别人的手牌根本不下发本地，明牌需要服务端配合，暂不支持。
+ * ============================================================ */
+const DDZ_MING_HOLD_MS = 700;   // AI 明牌前的思考停顿
+
+/** 明牌阶段：真人地主弹窗选，AI 地主按牌力自己定 */
+async function ddzMingStage(myRun) {
+  if (state.landlord < 0 || state.phase !== 'playing') return;
+  if (ONLINE_ACTIVE()) return;                 // 联机不支持（见上面说明）
+  const seat = state.landlord;
+  if (seat === 0 && state.players[0].isHuman) {
+    openMingDialog();
+    const answer = await waitForDdz('ming', myRun);
+    if (myRun !== runId) return;
+    setDdzMing(!!(answer && answer.on));
+  } else {
+    await sleep(state.settings.delay ? DDZ_MING_HOLD_MS : 0);
+    if (myRun !== runId) return;
+    setDdzMing(D.mingpaiAI(state.players[seat].hand || [], { difficulty: state.difficulty }));
+  }
+}
+
+function openMingDialog() {
+  renderMingDialog();
+  $('ovSell').hidden = false;
+  setHint('明牌阶段：亮出全部手牌，本局输赢翻倍；也可以保守一点不选。');
+  // 超时 → 默认不明牌（明牌是一次性决策，不该触发超时托管）
+  state._mingDeadline = Date.now() + localTurnTimeoutMs();
+  if (state._mingTimer) clearTimeout(state._mingTimer);
+  state._mingTimer = setTimeout(() => {
+    state._mingTimer = null;
+    if (!$('ovSell').hidden) resolveDdzWait({ kind: 'ming', on: false });
+  }, localTurnTimeoutMs());
+}
+
+/**
+ * 明牌弹窗里渲染的是**全部手牌**，且全部不可点选 ——
+ * 明牌没有「挑几张」这回事，要么全亮要么不亮。
+ */
+function renderMingDialog() {
+  const me = state.players[0];
+  const wrap = $('sellCards');
+  // 20 张牌比拱猪的 13 张多，换成宽版弹窗（同一套版式，只是宽一点）
+  const modal = wrap.closest('.modal');
+  if (modal) modal.classList.add('modal-wide');
+  const sig = 'ming:' + (me.hand || []).join(',');
+  if (wrap.dataset.sig !== sig) {
+    wrap.innerHTML = '';
+    for (const c of (me.hand || [])) wrap.appendChild(cardEl(c, { waiting: true }));
+    wrap.dataset.sig = sig;
+  }
+  $('sellTitle').textContent = '明牌';
+  $('sellLead').innerHTML =
+    '你是本局地主。选择<b>明牌</b>就把这 <b>' + (me.hand || []).length +
+    '</b> 张牌全部公开给两个农民看，' +
+    '<b>本局输赢 ×2</b>；不亮则按正常倍数结算。';
+  $('sellSkip').textContent = '不亮牌';
+  $('sellConfirm').textContent = '确认明牌（×2）';
+  setSellTip('亮牌的信息是双向的：你能靠牌力压制，农民也能看着你的牌专打你的空档。', '');
+}
+
+function setDdzMing(on) {
+  state.ming = !!on;
+  if (state._mingTimer) { clearTimeout(state._mingTimer); state._mingTimer = null; }
+  state._mingDeadline = 0;
+  $('ovSell').hidden = true;
+  if (state.ming) {
+    addLog(`${SEAT_LABEL[state.landlord]} 明牌 · 亮出全部手牌，本局倍数 ×2`, true);
+    setHint(`${SEAT_LABEL[state.landlord]} 明牌：手牌全程公开，本局输赢 ×2`);
+  }
+  render();
+}
+
 /**
  * 打开叫分弹窗。
  * @param {number}   [currentBid] 联机时用房间快照里的最高分；单机省略则读本地 state
@@ -2837,7 +3131,7 @@ function renderBidList() {
 
 async function ddzPlayLoop(myRun) {
   while (myRun === runId && state.phase === 'playing') {
-    if (!(await waitForResume(myRun))) return;
+    if (!(await waitForResume(myRun))) { return; }
     const seat = state.turn;
     if (seat === 0 && state.players[0].isHuman) {
       setHint(state.currentCombo
@@ -2851,7 +3145,7 @@ async function ddzPlayLoop(myRun) {
       if (myRun !== runId) return;
       if (!answer) return;
       if (answer.kind === 'pass') {
-        if (!doDdzPass(0)) setHint('你是本轮首引，必须出牌。', 'err');
+        if (!(await doDdzPass(0))) setHint('你是本轮首引，必须出牌。', 'err');
       } else if (!doDdzPlay(0, answer.cards)) {
         setHint('这组牌现在不能出。', 'err');
       }
@@ -2861,7 +3155,7 @@ async function ddzPlayLoop(myRun) {
       const p = state.players[seat];
       const cards = D.playAI(p.hand, state.currentCombo, ddzAiOptions(seat));
       if (cards && cards.length) doDdzPlay(seat, cards);
-      else doDdzPass(seat);
+      else await doDdzPass(seat);
     }
     if (myRun !== runId) return;
     render();
@@ -2918,8 +3212,10 @@ function doDdzPlay(seat, cards) {
   return true;
 }
 
-/** 不出。首引时非法（返回 false）。连续两家不出 → 桌面清空、上一手重新首引。 */
-function doDdzPass(seat) {
+/** 不出。首引时非法（返回 false）。连续两家不出 → 桌面清空、上一手重新首引。
+ *  ⚠️ 改为 async：两家都选择不出时，先渲染并停顿一会儿，让「上两家都选择不出」
+ *     留在桌面给玩家看，再交给领出者（下一手真正出牌时 doDdzPlay 才清桌）。 */
+async function doDdzPass(seat) {
   if (!state.currentCombo) return false;
   state.moveSeq++;
   state.passCount++;
@@ -2932,8 +3228,16 @@ function doDdzPass(seat) {
     state.turn = state.lastLeadSeat;
     state.currentCombo = null;
     state.passCount = 0;
-    // 不要此刻清空：第二家的「不出」需要先留在桌面给玩家看。
-    // 下一次领出者真正出牌时，doDdzPlay() 开头再清掉旧牌与不出。
+    // 两家都选择不出：先把「上两家都不出」留在桌面给玩家看一会儿…
+    render();
+    setHint(`上两家都不出 · ${SEAT_LABEL[state.turn]} 重新首引`);
+    const myRun = runId;
+    await sleep(state.settings.delay ? 1200 : 700);
+    if (myRun !== runId) return true; // 停顿期间开了新局 / 切模式：别碰新牌桌
+    // …停顿结束后清空牌桌，再交给领出者开新的一轮。
+    state.trickPlays = [];
+    clearManualHint();
+    render();
   } else {
     state.turn = (seat + 1) % 3;
   }
@@ -2953,6 +3257,7 @@ function ddzFinish(winnerSeat) {
     grabs: state.grabCount,
     spring,
     antiSpring,
+    mingpai: state.ming,
   });
   const deltas = [0, 1, 2].map((i) =>
     (i === state.landlord ? result.landlordDelta : result.farmerDelta));
@@ -2983,10 +3288,11 @@ function showDdzResult(deltas, result, landlordWin, winnerSeat, over) {
     : (iWon ? '本局你赢了' : '本局你输了');
   const springTag = result.spring ? ' + 春天×2' : (result.antiSpring ? ' + 反春天×2' : '');
   const grabTag = result.grabs ? ` + 抢地主×${Math.pow(2, result.grabs)}` : '';
+  const mingTag = result.mingpai ? ` + ${SEAT_LABEL[state.landlord]}明牌×2` : '';
   $('resSub').textContent =
     `${SEAT_LABEL[winnerSeat]} 先出完手牌，${landlordWin ? '地主' : '农民'}获胜。` +
     `底分 ${result.baseBid} · 倍数 ×${result.multiplier}` +
-    `（${state.bombCount} 个炸弹${result.rocket ? ' + 王炸' : ''}${grabTag}${springTag}）。` +
+    `（${state.bombCount} 个炸弹${result.rocket ? ' + 王炸' : ''}${grabTag}${springTag}${mingTag}）。` +
     `你的总分 ${state.scores[0]} 分。`;
 
   const rows = [];
@@ -3258,7 +3564,8 @@ function syncHomeCta() {
     ['selling', 'passing', 'bidding', 'playing'].includes(state.phase);
   const cont = $('btnContinue');
   cont.hidden = !hasGame;
-  $('btnNew').textContent = hasGame ? '重新开一局' : '开始新的一局';
+  $('btnNew').textContent = hasGame ? '重新开一局'
+    : (isWerewolf() ? '需联机开局' : '开始新的一局');
   syncRejoinCta();
 }
 
@@ -3371,6 +3678,11 @@ function exitToHome() {
 /* ---- 主页 → 开局 ---- */
 $('btnNew').addEventListener('click', () => {
   closeAllModals();
+  // 狼人杀是联机专属：单机既没有对手也没有私密频道，开局没有意义
+  if (isWerewolf()) {
+    showToast('狼人杀是联机专属玩法，请先创建或加入房间');
+    return;
+  }
   showScreen('game');
   newGame();
   syncHomeCta();
@@ -3449,6 +3761,16 @@ $('btnReclaim').addEventListener('click', () => {
   }
 });
 
+// 手动 AI 托管：自己主动把本座位交给 AI 代打（与「收回控制权」互斥显示）。
+$('btnTakeover').addEventListener('click', () => {
+  if (ONLINE_ACTIVE() && window.NET_CLIENT && window.NET_CLIENT.takeoverSeat) {
+    window.NET_CLIENT.takeoverSeat();
+    showToast('已托管 AI 代打', 'ok');
+  } else {
+    manualTakeoverLocal(0);
+  }
+});
+
 /* ---- 昵称与战绩 ---- */
 $('playerName').addEventListener('input', (e) => {
   const v = e.target.value.trim();
@@ -3515,8 +3837,21 @@ $('passAuto').addEventListener('click', () => {
   renderPassDialog();
 });
 
-/* ---- 亮牌（拱猪） ---- */
+/* ---- 亮牌（拱猪「卖牌」/ 斗地主「明牌」共用同一套弹窗） ---- */
 $('sellConfirm').addEventListener('click', async () => {
+  // 联机斗地主明牌：提交给裁判推进（本地不跑 ddzMingStage，没有挂起点可解）。
+  if (ONLINE_ACTIVE() && isDdz()) {
+    await ONLINE.submitMing(true);
+    $('ovSell').hidden = true;
+    renderOnlineTable();
+    return;
+  }
+  // 斗地主：明牌是「亮 or 不亮」，没有选牌这一步 —— 直接解除明牌阶段的挂起。
+  // 没人挂起时（比如调试里手动 openMingDialog）就直接定夺，免得点了没反应、弹窗关不掉。
+  if (isDdz()) {
+    if (!resolveDdzWait({ kind: 'ming', on: true })) setDdzMing(true);
+    return;
+  }
   // 联机：提交给裁判（房主），由房主汇总后推进阶段。
   // 不能走本地 confirmSell —— 它会把牌写进本地 sold 并在本地跑 afterSell，
   // 房间里的 selectedSell[mySeat] 却始终是 null，阶段永远停在 selling。
@@ -3537,6 +3872,17 @@ $('sellConfirm').addEventListener('click', async () => {
 });
 
 $('sellSkip').addEventListener('click', async () => {
+  // 联机斗地主明牌：不亮牌 → 提交给裁判推进。
+  if (ONLINE_ACTIVE() && isDdz()) {
+    await ONLINE.submitMing(false);
+    $('ovSell').hidden = true;
+    renderOnlineTable();
+    return;
+  }
+  if (isDdz()) {
+    if (!resolveDdzWait({ kind: 'ming', on: false })) setDdzMing(false);
+    return;
+  }
   // 「不亮牌」= 提交空数组，同样是有效提交（null 才代表未提交）
   if (ONLINE_ACTIVE()) {
     state.selectedSell = [];
@@ -3653,6 +3999,18 @@ bindSwitch('swMoon', 'moonSelf');
 bindSwitch('swPass', 'passHearts');
 bindSwitch('swDelay', 'delay');
 bindSwitch('swSell', 'sell');
+
+// 「显示 AI 手牌」是调试开关，**不进 state.settings**（那是对局设置，会带进下一局）；
+// 它只存在 localStorage，并且关掉时整块浮窗 hidden，不参与任何渲染计算。
+// 「显示 AI 手牌」是调试开关，**不进 state.settings**（那是对局设置，会带进下一局）；
+// 它只存在 localStorage，并且关掉时整块浮窗 hidden，不参与任何渲染计算。
+$('swPeekAI').addEventListener('click', () => setPeek(!peekAI));
+$('peekClose').addEventListener('click', () => setPeek(false));
+// 手机端浮窗会盖住自己的手牌 —— 点标题行可以折起来，只留一条标题
+document.querySelector('#peekDock .peek-head').addEventListener('click', (e) => {
+  if (e.target.closest('#peekClose')) return;
+  $('peekDock').classList.toggle('is-fold');
+});
 
 /** 设置面板控件的选中态与当前模式对齐（开关 + 拱猪专用项 + 只读镜像） */
 function syncSettingsUI() {
@@ -3866,6 +4224,11 @@ function renderLobby() {
   if (!room) return;
   const mySeat = ONLINE.getMySeat();
 
+  // ⚠️ 主题色跟着**房间**走：斗地主房间就是黄、拱猪房就是靛蓝。
+  //    以前只有开打后（syncStateFromView）才切，玩家在大厅里盯着红心大战的红
+  //    等半天， rooms 一变模式更是完全看不出（2026-09-28 反馈）。
+  if (room.mode && document.body.dataset.mode !== room.mode) renderModeChrome(room.mode);
+
   $('lobbyCode').textContent = room.code;
   // 被邀请者不给看玩法名（同 renderLobbySettings 的理由：那本来就是"房主的配置"）
   const invitedGuest = window.NET_INVITE.isInvited() && !ONLINE.amHost();
@@ -3873,7 +4236,10 @@ function renderLobby() {
     ? '由房主设定'
     : (MODE_NAME[room.mode] || '红心大战');
   $('btnStartOnline').hidden = !ONLINE.amHost();
-  $('btnStartOnline').disabled = room.phase !== 'lobby';
+  // 狼人杀必须先定主持人：没主持人就没人推进昼夜与私密频道，开了也是空转
+  const wwNoMod = room.mode === 'werewolf'
+    && !(room.werewolf && room.werewolf.moderatorSeat >= 0 && room.seats[room.werewolf.moderatorSeat]);
+  $('btnStartOnline').disabled = room.phase !== 'lobby' || wwNoMod;
 
   // 扫码邀请入口只给房主 —— 客人手里没有（也不该有）云端凭据，
   // 拼不出有效链接，给了按钮只会误导。
@@ -3891,6 +4257,8 @@ function renderLobby() {
   // 座位：斗地主是三人局，只画 3 个座位
   const seatCount = room.mode === 'ddz' ? 3 : (room.seatCount || 4);
   const seatsEl = $('lobbySeats');
+  // 座位多了（狼人杀 8~12 人）就改多列网格，竖着排一长条太难扫
+  if (seatsEl) seatsEl.classList.toggle('is-many', seatCount > 4);
   const rows = [];
   for (let i = 0; i < seatCount; i++) {
     const s = room.seats[i];
@@ -3927,13 +4295,17 @@ function renderLobby() {
   const humans = room.seats.filter(Boolean).length;
   const note = !ONLINE.amHost()
     ? '等待房主开始对局…'
-    : (room.mode === 'ddz'
+    : (room.mode === 'werewolf'
+        ? (wwNoMod
+            ? '请先在「玩法设置」里指定一名玩家为主持人，再开始对局。'
+            : `当前 ${humans}/${seatCount} 人（含 1 位主持）。狼人杀不补 AI，点「开始对局」随机抽角色。`)
+        : (room.mode === 'ddz'
         ? (humans >= 2
             ? `当前 ${humans} 位真人，空位由 AI 补到 3 人。点「开始对局」发牌。`
             : '斗地主三人局：1 位真人 + 2 个 AI 即可开局，也可以等朋友一起。')
         : (humans >= 2
             ? `当前 ${humans} 位真人，其余座位由 AI 托管。点「开始对局」发牌。`
-            : '至少需要 2 位真人才能开局，其余座位由 AI 托管。'));
+            : '至少需要 2 位真人才能开局，其余座位由 AI 托管。')));
   $('lobbyNote').textContent = note;
 }
 
@@ -3945,7 +4317,11 @@ function renderLobbySettings(room) {
   const mode = room.mode || 'hearts';
   const gz = mode === 'gongzhu';
   const ddz = mode === 'ddz';
+  const ww = mode === 'werewolf';
   const diff = (room.settings && room.settings.aiDifficulty) || 'normal';
+
+  // 正在输入角色名时不要重建 DOM —— 否则每敲一个字光标就被抢走
+  if (ww && wwCfgEditing) return;
 
   // 被邀请者：用户明确要求「不能看见房主的配置信息」。
   // 注意这里不止是禁用下拉框 —— 禁用状态下 `<select>` 仍会把**房主选的值**
@@ -3964,7 +4340,10 @@ function renderLobbySettings(room) {
 
   // 玩法选项：斗地主没有亮牌 / 传牌，改显示 AI 难度（托管席位的叫分与出牌强度）
   let optionRow;
-  if (ddz) {
+  if (ww) {
+    // 狼人杀没有牌局选项，改成「角色池 + 主持人」配置
+    optionRow = wwConfigHTML(room, canEdit);
+  } else if (ddz) {
     optionRow =
       `<div class="lobby-set-row"><span>AI 难度</span>` +
         `<select id="lbDiff" ${dis}>` +
@@ -3992,12 +4371,471 @@ function renderLobbySettings(room) {
         opt('gongzhu', '拱猪', mode) +
         opt('hearts', '红心大战', mode) +
         opt('ddz', '斗地主（三人）', mode) +
+        opt('werewolf', '狼人杀（联机对话）', mode) +
       `</select></div>` + optionRow;
+}
+
+/* ---------- 狼人杀房间配置 ---------- */
+
+/** 是否正在编辑角色名（编辑期间不重建大厅 DOM，避免光标被抢） */
+let wwCfgEditing = false;
+
+/** 大厅里的狼人杀配置块：主持人 + 角色池 */
+function wwConfigHTML(room, canEdit) {
+  const w = room.werewolf || {};
+  const dis = canEdit ? '' : 'disabled';
+  const cfg = Array.isArray(w.roleConfig) ? w.roleConfig : [];
+
+  const rows = cfg.map((r, i) =>
+      `<div class="ww-cfg-row">` +
+        `<input class="ww-cfg-name" data-ww-cfg-name="${i}" value="${escapeHtml(r.name || r.key || '')}" maxlength="10" ${dis}>` +
+        `<button class="ww-cfg-step" data-ww-cfg-step="${i}" data-delta="-1" ${dis} aria-label="减少">−</button>` +
+        `<span class="ww-cfg-count">${parseInt(r.count, 10) || 0}</span>` +
+        `<button class="ww-cfg-step" data-ww-cfg-step="${i}" data-delta="1" ${dis} aria-label="增加">+</button>` +
+        `<button class="ww-cfg-del" data-ww-cfg-del="${i}" ${dis} aria-label="删除">删除</button>` +
+      `</div>`
+    ).join('');
+
+  const modOpts = [`<option value="-1"${!(w.moderatorSeat >= 0) ? ' selected' : ''}>未指定</option>`]
+    .concat((room.seats || []).map((s, i) => (s
+      ? `<option value="${i}"${w.moderatorSeat === i ? ' selected' : ''}>${escapeHtml(s.name)}（${i + 1} 号）</option>`
+      : '')).filter(Boolean));
+
+  const total = cfg.reduce((n, r) => n + (parseInt(r.count, 10) || 0), 0);
+  const players = (room.seats || []).filter((s, i) => s && i !== w.moderatorSeat).length;
+  const mismatch = total !== players;
+
+  // 房间人数：狼人杀需要 8~12 人，这里让房主自行扩座（上限 MAX_SEATS）
+  const maxSeats = (window.NET_REFEREE && window.NET_REFEREE.MAX_SEATS) || 12;
+  const curSeats = room.seatCount || (room.seats || []).length || 4;
+  const seatOpts = [];
+  for (let n = 3; n <= maxSeats; n++) {
+    seatOpts.push(`<option value="${n}"${n === curSeats ? ' selected' : ''}>${n} 人</option>`);
+  }
+
+  return `<div class="lobby-set-col">` +
+      `<div class="lobby-set-row"><span>房间人数</span>` +
+        `<select id="lbWwSeats" ${dis}>${seatOpts.join('')}</select></div>` +
+      `<div class="lobby-set-row"><span>主持人</span>` +
+        `<select id="lbWwMod" ${dis}>${modOpts.join('')}</select></div>` +
+      `<div class="ww-cfg-block">` +
+        `<div class="ww-cfg-head"><span>角色配置</span>` +
+          `<em>共 ${total} 人 / 玩家 ${players} 人${mismatch ? ' · 开局自动用村民补齐或截断' : ''}</em></div>` +
+        (rows || '<p class="ww-cfg-empty">还没有角色，点「按人数推荐」生成一套</p>') +
+        `<div class="ww-cfg-actions">` +
+          `<button class="btn btn-ghost btn-sm" id="lbWwAdd" ${dis}>添加角色</button>` +
+          `<button class="btn btn-ghost btn-sm" id="lbWwSuggest" ${dis}>按人数推荐</button>` +
+        `</div>` +
+      `</div>` +
+    `</div>`;
+}
+
+async function pushWwConfig(patch) {
+  const res = await ONLINE.wwSetConfig(patch);
+  if (!res || !res.ok) showToast((res && res.error) || '保存失败');
+  renderLobby();
+}
+
+async function pushSeatCount(n) {
+  const res = await ONLINE.setSeatCount(n);
+  if (!res || !res.ok) showToast((res && res.error) || '修改人数失败');
+  else renderLobby();
 }
 
 function escapeHtml(s) {
   return String(s).replace(/[&<>"']/g, (c) => (
     { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+}
+
+/* ============================================================
+ * 狼人杀（联机专属 · 对话模式）
+ *
+ * 与牌桌渲染彻底分开：没有牌、没有出牌循环，只有
+ *   身份卡 / 玩家席 / 对话流 / 主持人控制台。
+ *
+ * ⚠️ 权限不在这里判断 —— 「谁能看到哪条消息、谁的身份可见」全部由
+ *    裁判（net-referee 的 publicView + werewolf.js 的 canSee）裁剪完毕，
+ *    本段只把**已裁剪**的视图画出来。前端再藏一层都是自欺欺人。
+ * ============================================================ */
+
+const WW_PHASE_TEXT = { setup: '准备中', night: '夜晚', day: '白天', end: '已结束' };
+
+/** 当前房间的狼人杀子状态（已按我的视角裁剪） */
+function wwView() {
+  const v = ONLINE.getView();
+  if (!v || v.mode !== 'werewolf' || !v.werewolf) return null;
+  return v.werewolf;
+}
+
+function wwSeatName(v, i) {
+  const s = (v && v.seats) ? v.seats[i] : null;
+  return s ? s.name : `${(i == null ? '?' : i + 1)} 号`;
+}
+
+function renderWerewolf() {
+  const v = ONLINE.getView();
+  const w = wwView();
+  if (!v || !w) return;
+  const mySeat = ONLINE.getMySeat();
+  const isMod = !!w.isMod;
+  const roles = w.roles || [];
+  const alive = w.alive || [];
+  const revealed = w.revealed || [];
+
+  $('wwRoomCode').textContent = (ONLINE.session && ONLINE.session.code) || '------';
+  const chip = $('wwPhaseChip');
+  chip.textContent = WW_PHASE_TEXT[w.phase] || w.phase;
+  chip.dataset.phase = w.phase || 'setup';
+
+  $('wwRoundText').textContent =
+    w.phase === 'setup' ? '等待开局'
+      : w.phase === 'end' ? '对局结束'
+        : (w.phase === 'night' ? `第 ${w.round} 夜` : `第 ${w.round} 天`);
+
+  /* ---- 身份卡 ---- */
+  const myRole = roles[mySeat];
+  if (isMod) {
+    $('wwIdBody').innerHTML =
+      `<div class="ww-id is-mod"><span class="ww-id-name">主持人</span>` +
+      `<span class="ww-id-desc">上帝视角：你能看到所有人的身份与全部消息</span></div>`;
+  } else if (myRole) {
+    $('wwIdBody').innerHTML =
+      `<div class="ww-id camp-${escapeHtml(myRole.camp || 'good')}">` +
+      `<span class="ww-id-name">${escapeHtml(myRole.name)}</span>` +
+      `<span class="ww-id-desc">${myRole.camp === 'wolf' ? '狼人阵营 · 夜晚可联络同伴' : '好人阵营'}</span></div>`;
+  } else {
+    $('wwIdBody').innerHTML =
+      `<div class="ww-id is-none"><span class="ww-id-name">尚未分配</span>` +
+      `<span class="ww-id-desc">等待主持人开局抽角色</span></div>`;
+  }
+
+  /* ---- 玩家席 ---- */
+  const seats = v.seats || [];
+  const rows = [];
+  for (let i = 0; i < seats.length; i++) {
+    const s = seats[i];
+    if (!s) continue;
+    const role = roles[i];
+    const isModSeat = i === w.moderatorSeat;
+    const isAlive = alive[i] !== false;
+    // 同伴：同角色且该角色互认（狼人互认同伴），裁判已把可见的同伴身份放行了
+    const isPeer = !isModSeat && (w.peers || []).includes(i);
+    let roleHTML;
+    if (isModSeat) roleHTML = '<i class="ww-role is-mod">主持人</i>';
+    else if (role) roleHTML = `<i class="ww-role camp-${escapeHtml(role.camp || 'good')}">${escapeHtml(role.name)}</i>`;
+    else roleHTML = '<i class="ww-role is-hidden">身份未知</i>';
+
+    // 主持人才有「淘汰 / 复活 / 公开身份」操作；对主持人自己不显示
+    const ops = (isMod && !isModSeat)
+      ? `<span class="ww-p-ops">` +
+          `<button class="ww-p-btn" data-ww-alive="${i}" data-alive="${isAlive ? 0 : 1}">${isAlive ? '淘汰' : '复活'}</button>` +
+          `<button class="ww-p-btn" data-ww-reveal="${i}" ${revealed[i] ? 'disabled' : ''}>公开身份</button>` +
+        `</span>`
+      : '';
+
+    rows.push(
+      `<div class="ww-player ${isAlive ? '' : 'is-dead'} ${i === mySeat ? 'is-me' : ''}">` +
+        `<span class="ww-p-name">${escapeHtml(s.name)}${i === mySeat ? '（你）' : ''}</span>` +
+        roleHTML +
+        (isPeer ? '<span class="ww-p-peer">同伴</span>' : '') +
+        (isModSeat ? '' : `<span class="ww-p-state">${isAlive ? '存活' : '出局'}</span>`) +
+        (revealed[i] ? '<span class="ww-p-rev">已公开</span>' : '') +
+        ops +
+      `</div>`
+    );
+  }
+  $('wwPlayers').innerHTML = rows.join('');
+  const aliveCount = seats.reduce((n, s, i) => n + (s && i !== w.moderatorSeat && alive[i] !== false ? 1 : 0), 0);
+  $('wwAliveHint').textContent = `${aliveCount} 人存活`;
+
+  /* ---- 对话流 ---- */
+  const msgs = w.messages || [];
+  $('wwChatHint').textContent = isMod ? '你能看到全部消息' : '只显示与你相关的消息';
+  const log = $('wwLog');
+  log.innerHTML = msgs.length
+    ? msgs.map((m) => wwMessageHTML(m, mySeat, v, w)).join('')
+    : '<p class="ww-empty">还没有消息。主持人喊话后，这里只会出现「你该看到」的内容。</p>';
+  log.scrollTop = log.scrollHeight;
+
+  /* ---- 输入区 ---- */
+  const canTalk = (w.phase === 'night' || w.phase === 'day');
+  // 出局玩家不能发言（主持人不受限，他要继续主持）
+  const dead = !isMod && (alive[mySeat] === false);
+  $('wwInput').disabled = !canTalk || dead;
+  $('wwSend').disabled = !canTalk || dead;
+  $('wwTargetRow').hidden = !canTalk || dead;
+  $('wwPhrases').hidden = !isMod || !canTalk;
+  $('wwModActions').hidden = !isMod || w.phase === 'end';
+  if (canTalk && !dead) wwRenderTargets(v, w);
+  if (isMod && canTalk) wwRenderPhrases(w); else $('wwPhrases').innerHTML = '';
+  $('wwInput').placeholder = dead ? '你已出局，不能发言'
+    : (!canTalk ? '对局未开始'
+      : (isMod ? '喊话内容…' : (w.phase === 'night' ? '私聊主持人或本角色频道…' : '公开发言…')));
+
+  /* ---- 投票 / 本局结果 ---- */
+  renderWerewolfVote(v, w);
+  renderWerewolfEnd(v, w);
+}
+
+/** 投票面板：主持人发起与公布，玩家点候选人投票（公布前可改票） */
+function renderWerewolfVote(v, w) {
+  const card = $('wwVoteCard');
+  const vote = w.vote;
+  const isMod = !!w.isMod;
+  const mySeat = w.mySeat;
+  const inPlay = (w.phase === 'night' || w.phase === 'day');
+  const dead = !isMod && ((w.alive || [])[mySeat] === false);
+
+  // 没投票且（不在对局中 或 我不是主持人）→ 整块收起，别占版面
+  if (!vote && (!inPlay || !isMod)) { card.hidden = true; return; }
+  card.hidden = false;
+
+  const nm = (s) => wwSeatName(v, s);
+  const body = $('wwVoteBody');
+
+  $('wwVoteActions').hidden = !isMod;
+  if (isMod) {
+    $('wwVoteStart').hidden = !!(vote && vote.open);
+    $('wwVoteEnd').hidden = !(vote && vote.open);
+    $('wwVoteCancelBtn').hidden = !(vote && vote.open);
+  }
+
+  if (!vote) {
+    $('wwVoteHint').textContent = '可发起一次投票';
+    body.innerHTML = '<p class="ww-empty">还没有进行中的投票。点「发起投票」默认以所有存活玩家为候选。</p>';
+    return;
+  }
+
+  const total = Object.keys(vote.ballots || {}).length;
+  $('wwVoteHint').textContent = vote.open
+    ? `进行中 · ${vote.title} · 已投 ${total} 票`
+    : `已结束 · ${vote.title}`;
+
+  if (vote.open) {
+    const canVote = !isMod && !dead;
+    const opts = (vote.options || []).map((s) => {
+      const mine = (vote.ballots || {})[mySeat] === s;
+      const cnt = isMod ? Object.keys(vote.ballots || {}).filter((k) => vote.ballots[k] === s).length : null;
+      const label = escapeHtml(nm(s)) + (cnt != null ? ` · ${cnt} 票` : '') + (mine ? ' ✓' : '');
+      return canVote
+        ? `<button class="ww-vote-opt ${mine ? 'is-picked' : ''}" data-ww-vote="${s}">${label}</button>`
+        : `<span class="ww-vote-opt is-static ${mine ? 'is-picked' : ''}">${label}</span>`;
+    }).join('');
+    body.innerHTML = `<div class="ww-vote-opts">${opts}</div>` +
+      (canVote ? '<p class="ww-vote-tip">点一个候选人投票，公布前可以改票。</p>'
+        : (isMod ? '<p class="ww-vote-tip">你是主持人：能看到实时票数，结束后公布。</p>'
+          : (dead ? '<p class="ww-vote-tip">你已出局，不能投票。</p>' : '<p class="ww-vote-tip">等待投票结束。</p>')));
+    return;
+  }
+
+  // 已结束
+  if (!vote.revealed) {
+    body.innerHTML = '<p class="ww-empty">投票已结束，主持人尚未公布结果。</p>';
+    return;
+  }
+  const r = vote.result || {};
+  const rows = (r.counts || []).map((e) => {
+    const top = r.top && r.top.seat === e.seat;
+    return `<div class="ww-vote-row ${top ? 'is-top' : ''}">` +
+      `<span>${escapeHtml(nm(e.seat))}</span><b>${e.count} 票</b></div>`;
+  }).join('');
+  const head = r.tie
+    ? `<p class="ww-vote-flat is-tie">平票（${(r.tied || []).map((e) => escapeHtml(nm(e.seat))).join('、')}）</p>`
+    : (r.top ? `<p class="ww-vote-flat">最高票：${escapeHtml(nm(r.top.seat))}（${r.top.count} 票）</p>`
+      : '<p class="ww-vote-flat">无人投票</p>');
+  body.innerHTML = head + `<div class="ww-vote-rows">${rows}</div>`;
+}
+
+/** 本局结果：主持人先选赢家，再开下一局；其他玩家只看结果 */
+function renderWerewolfEnd(v, w) {
+  const card = $('wwEndCard');
+  if (w.phase !== 'end') { card.hidden = true; return; }
+  card.hidden = false;
+
+  const isMod = !!w.isMod;
+  const body = $('wwEndBody');
+  const label = (k) => (k === 'good' ? '好人阵营获胜' : (k === 'wolf' ? '狼人阵营获胜' : (k === 'draw' ? '平局' : null)));
+
+  if (isMod && !w.winner) {
+    $('wwEndHint').textContent = '选择获胜阵营';
+    body.innerHTML =
+      `<div class="ww-end-pick">` +
+        `<button class="btn btn-primary" data-ww-winner="good">好人获胜</button>` +
+        `<button class="btn btn-primary" data-ww-winner="wolf">狼人获胜</button>` +
+        `<button class="btn btn-ghost" data-ww-winner="draw">平局</button>` +
+      `</div>`;
+    return;
+  }
+
+  $('wwEndHint').textContent = w.winner ? (label(w.winner) || '') : '等待主持人判定';
+  const hist = (w.results || []).slice(-5).reverse().map((r) =>
+      `<div class="ww-end-row"><span>第 ${r.round} 局</span><b>${label(r.winner) || '—'}</b></div>`).join('');
+  body.innerHTML =
+    (w.winner ? `<p class="ww-end-flat">${label(w.winner)}</p>` : '<p class="ww-empty">等待主持人判定胜负…</p>') +
+    (isMod && w.winner
+      ? '<div class="ww-end-next"><button class="btn btn-primary btn-lg" id="wwNextRound">开始下一局</button></div>'
+      : '') +
+    (hist ? `<div class="ww-end-hist"><span class="ww-end-hist-t">近期战绩</span>${hist}</div>` : '');
+}
+
+/** 主持人：快捷胜利判定 / 下一局按钮 */
+async function wwPickWinner(winner) {
+  const res = await ONLINE.wwSetWinner(winner);
+  if (!res || !res.ok) { showToast((res && res.error) || '判定失败'); return; }
+  renderWerewolf();
+}
+
+async function wwNextRound() {
+  const res = await ONLINE.wwNextRound();
+  if (!res || !res.ok) { showToast((res && res.error) || '开局失败'); return; }
+  renderWerewolf();
+}
+
+function wwMessageHTML(m, mySeat, v, w) {
+  // 系统公告（死亡提示 / 投票结果 / 换局）：全场可见，不显示发言人
+  if (m.system) {
+    return `<div class="ww-msg is-system">` +
+      `<div class="ww-msg-text">${escapeHtml(m.text)}</div></div>`;
+  }
+  const mine = m.from === mySeat;
+  const WW = window.WEREWOLF;
+  const ctx = {
+    moderatorSeat: w.moderatorSeat,
+    roles: w.roles || [],
+    roleConfig: w.roleConfig || [],
+    seatNames: (v.seats || []).map((s) => (s ? s.name : '')),
+  };
+  const label = (WW && WW.targetLabel) ? WW.targetLabel(m.to, ctx) : '全体';
+  const priv = !!(m.to && m.to.kind !== 'all');
+  const phaseText = m.phase === 'day' ? '白天' : '夜晚';
+  return `<div class="ww-msg ${mine ? 'is-mine' : ''} ${priv ? 'is-private' : ''}">` +
+      `<div class="ww-msg-head">` +
+        `<b>${escapeHtml(wwSeatName(v, m.from))}</b>` +
+        `<span class="ww-msg-to">→ ${escapeHtml(label)}</span>` +
+        `<span class="ww-msg-phase">${phaseText}${m.round ? ' · 第' + m.round + '轮' : ''}</span>` +
+      `</div>` +
+      `<div class="ww-msg-text">${escapeHtml(m.text)}</div>` +
+    `</div>`;
+}
+
+/** 「发给」下拉：主持人与玩家的可选项不同 */
+function wwRenderTargets(v, w) {
+  const sel = $('wwTarget');
+  const cur = sel.value;
+  const myRole = (w.roles || [])[w.mySeat];
+  const WW = window.WEREWOLF;
+  const opts = [];
+
+  if (w.isMod) {
+    // 主持人：全体 / 任意角色 / 任意玩家
+    opts.push('<option value="all">全体</option>');
+    (w.roleConfig || []).forEach((r) => {
+      if (!r || !r.key) return;
+      // 兜底：老配置可能只有 key 没有 name（如早期 suggestConfig 的产物），
+      // 这里回角色库补名字，避免下拉里出现 "角色 · wolf" 这种裸 key。
+      const nm = r.name || ((WW && WW.roleByKey) ? WW.roleByKey(r.key).name : r.key);
+      opts.push(`<option value="role:${escapeHtml(r.key)}">角色 · ${escapeHtml(nm)}</option>`);
+    });
+    (v.seats || []).forEach((s, i) => {
+      if (!s || i === w.moderatorSeat) return;
+      opts.push(`<option value="seat:${i}">${escapeHtml(s.name)}（${i + 1} 号）</option>`);
+    });
+  } else {
+    // 玩家：白天可公开发言；随时私聊主持人；本角色互认时可进角色频道（狼人讨论）
+    if (w.phase === 'day') opts.push('<option value="all">全体（公开）</option>');
+    opts.push('<option value="mod">主持人（私密）</option>');
+    if (myRole && myRole.seePeers) {
+      opts.push(`<option value="role:${escapeHtml(myRole.key)}">本角色 · ${escapeHtml(myRole.name)}（同伴可见）</option>`);
+    }
+  }
+
+  sel.innerHTML = opts.join('');
+  if (cur && Array.prototype.some.call(sel.options, (o) => o.value === cur)) sel.value = cur;
+}
+
+/**
+ * 主持人快捷口令。
+ * 口令列表**跟随角色配置动态生成**：每个非村民角色自动带
+ * 「X请睁眼 / X请闭眼」一对，手动新增的自定义角色也会被覆盖到。
+ * 每个口令可带三种自动行为（角标会标出来）：
+ *   data-ww-phase —— 先自动切昼夜
+ *   data-ww-to    —— 这一句发给谁（all = 公开，角色 key = 只该群体可见）
+ *   data-ww-focus —— 说完后把「发给」下拉切到哪（'all' = 切回全体）
+ */
+function wwRenderPhrases(w) {
+  const WW = window.WEREWOLF;
+  const raw = (WW && WW.buildPhrases)
+    ? WW.buildPhrases(w && w.roleConfig)
+    : ((WW && WW.PHRASES) || []);
+  const textOf = (p) => (WW && WW.phraseText) ? WW.phraseText(p) : (typeof p === 'string' ? p : (p && p.text) || '');
+  const phaseOf = (p) => (WW && WW.phrasePhase) ? WW.phrasePhase(p) : null;
+  const toOf = (p) => (WW && WW.phraseTo) ? WW.phraseTo(p) : 'all';
+  const focusOf = (p) => (WW && WW.phraseFocus) ? WW.phraseFocus(p) : null;
+  const hintOf = (p) => (WW && WW.phraseHint) ? WW.phraseHint(p, w && w.roleConfig) : '';
+
+  $('wwPhrases').innerHTML = raw.map((p) => {
+    const t = textOf(p);
+    const ph = phaseOf(p);
+    const to = toOf(p);
+    const focus = focusOf(p);
+    const hint = hintOf(p);
+    // 会改变后续走向的口令加强调色；纯私密的那句用「私密」标识
+    const cls = 'ww-chip-btn'
+      + (ph ? ' is-switch' : '')
+      + (to !== 'all' ? ' is-private' : '');
+    // ⚠️ data-ww-to **必须无条件输出**（含 'all'）：只在「非全体」时输出的话，
+    //    「狼人请闭眼」这类公开口令会回退去读下拉，而下拉此刻还停在上一句的
+    //    焦点 role:wolf —— 结果本该公开的闭眼口令被当成私密只发给了狼人。
+    return `<button class="${cls}" data-ww-phrase="${escapeHtml(t)}"` +
+      (ph ? ` data-ww-phase="${ph}"` : '') +
+      ` data-ww-to="${escapeHtml(to)}"` +
+      (focus ? ` data-ww-focus="${escapeHtml(focus)}"` : '') +
+      ` title="${escapeHtml(t + (hint ? '（' + hint + '）' : ''))}">` +
+      `${escapeHtml(t)}${hint ? `<i class="ww-chip-tag">${escapeHtml(hint)}</i>` : ''}</button>`;
+  }).join('');
+}
+
+/** 把主持人的「发给」下拉切到指定值（选项不存在则不动） */
+function wwSetTarget(value) {
+  const sel = $('wwTarget');
+  if (!sel || !value) return;
+  if (Array.prototype.some.call(sel.options, (o) => o.value === value)) sel.value = value;
+}
+
+/** 解析主持人的「发给」选择 */
+function wwParseTarget() {
+  const val = $('wwTarget').value || 'all';
+  if (val === 'all') return { kind: 'all' };
+  if (val === 'mod') return { kind: 'mod' };
+  if (val.indexOf('role:') === 0) return { kind: 'role', role: val.slice(5) };
+  if (val.indexOf('seat:') === 0) return { kind: 'seat', seat: parseInt(val.slice(5), 10) };
+  return { kind: 'all' };
+}
+
+async function wwSendMessage(textOverride, toOverride) {
+  const w = wwView();
+  if (!w) return;
+  const input = $('wwInput');
+  const fromInput = (textOverride == null);
+  const text = String(fromInput ? (input.value || '') : textOverride).trim();
+  if (!text) return;
+
+  // 主持人与玩家都按下拉定向；下拉里本来就只放了各自有权发的目标。
+  // 快捷口令可以显式指定目标（toOverride），覆盖下拉。
+  const to = toOverride || wwParseTarget();
+
+  const res = await ONLINE.wwSay(text, to);
+  if (!res || !res.ok) { showToast((res && res.error) || '发送失败'); return; }
+  if (fromInput) input.value = '';
+  renderWerewolf();
+}
+
+/** 主持人切昼夜。silent=true 时不重绘（调用方紧接着还要发话，避免连闪两次） */
+async function wwSetPhase(phase, silent) {
+  const res = await ONLINE.wwSetPhase(phase);
+  if (!res || !res.ok) { showToast((res && res.error) || '切换失败'); return false; }
+  if (!silent) renderWerewolf();
+  return true;
 }
 
 /* ---------- 联机牌桌渲染 ---------- */
@@ -4053,6 +4891,9 @@ function syncStateFromView() {
     state.currentCombo = v.currentCombo || null;
     state.lastPlay = v.lastPlay ? Object.assign({}, v.lastPlay, { player: toLocal(v.lastPlay.seat != null ? v.lastPlay.seat : v.lastPlay.player) }) : null;
     state.bottom = (v.bottom || []).slice();
+    // 联机明牌：裁判把地主是否明牌写进房间，本地把它映射到 state.ming，
+    // 供亮牌公示条（renderSoldBoard）与结算（showDdzResult）读取倍数 ×2。
+    state.ming = !!v.mingpai;
     state.moveSeq = v.moveSeq || 0;
     state.bombCount = v.bombCount || 0;
     state.hasRocket = !!v.hasRocket;
@@ -4270,6 +5111,33 @@ function syncOnlineModals() {
       setHint(`传牌阶段：选 3 张传给${targetName}。`);
     } else {
       passBox.hidden = true;
+    }
+  }
+
+  // ---- 明牌（斗地主，联机）：轮到本地地主（本地座位 0）才弹明牌弹窗 ----
+  // 与拱猪卖牌复用 #ovSell，但 v.phase 是 'ming' 而非 'selling'，不会冲突。
+  const mingBox = $('ovSell');
+  const wantMing = v.mode === 'ddz' && v.phase === 'ming' && state.onlineTurn === 0;
+  if (wantMing) {
+    if (mingBox.hidden) {
+      state.phase = 'ming';
+      renderMingDialog();
+      mingBox.hidden = false;
+      state._waitingMingHint = false;
+      setHint('明牌阶段：亮出全部手牌，本局输赢翻倍；也可以保守一点不选。');
+    }
+  } else {
+    // 非明牌相位（已过明牌 / 地主是别人 / 其它阶段）→ 弹窗若开着就收掉
+    if (!mingBox.hidden) mingBox.hidden = true;
+    if (v.phase === 'ming' && state.onlineTurn !== 0) {
+      // 地主是别人：提示等待对方决定（只报一次，避免每帧覆盖别的提示）
+      if (!state._waitingMingHint) {
+        const ll = SEAT_LABEL[state.onlineTurn] || '地主';
+        setHint(`等待 ${ll} 决定是否明牌…`);
+        state._waitingMingHint = true;
+      }
+    } else {
+      state._waitingMingHint = false;
     }
   }
 }
@@ -4500,7 +5368,16 @@ async function onlinePlayCard(card) {
 }
 
 async function onlineStartGame() {
+  const v0 = ONLINE.getView();
+  // 狼人杀必须先指定主持人 —— 没人主持就没法推进，直接拦下比开局后卡住好
+  if (v0 && v0.mode === 'werewolf') {
+    const w = v0.werewolf || {};
+    const hasMod = w.moderatorSeat >= 0 && v0.seats && v0.seats[w.moderatorSeat];
+    if (!hasMod) { showToast('请先在「玩法设置」里指定一名玩家为主持人'); return; }
+  }
   await ONLINE.startGame();
+  const v = ONLINE.getView();
+  if (v && v.mode === 'werewolf') { showScreen('werewolf'); renderWerewolf(); return; }
   showScreen('game');
   renderOnlineTable();
 }
@@ -4532,6 +5409,10 @@ ONLINE.subscribe((kind) => {
     if (v.phase === 'lobby') {
       if ($('screenLobby').hidden === false) renderLobby();
       else { showScreen('lobby'); renderLobby(); }
+    } else if (v.mode === 'werewolf') {
+      // 狼人杀走独立屏幕：它没有牌桌，不能复用 renderOnlineTable
+      if (!$('screenWerewolf').hidden) renderWerewolf();
+      else { showScreen('werewolf'); renderWerewolf(); }
     } else {
       if (!$('screenGame').hidden) renderOnlineTable();
       else { showScreen('game'); renderOnlineTable(); }
@@ -4557,8 +5438,11 @@ function openInviteModal() {
   const code = ONLINE.session.code;
   if (!cfg.ready || !code) { showOnlineError('请先配置联机服务并建房。'); return; }
 
+  const room = ONLINE.getRoom();
   const link = window.NET_INVITE.buildLink({
     url: cfg.url, token: cfg.token, prefix: cfg.prefix || 'ncm:', code,
+    // 把玩法随链接带过去：被邀请者在「加入房间」确认页就能看到对应的主题色
+    mode: (room && room.mode) || state.mode,
   });
 
   $('inviteLink').value = link;
@@ -4595,13 +5479,23 @@ function closeInviteModal() {
 function handleInviteOnLoad() {
   const info = window.NET_INVITE.consumeInvite();
   if (!info || !info.url || !info.token || !info.code) return false;
+  // 记住进邀请页前的主题色，拒绝邀请时要还原（进房则由房间接管）
+  inviteChromePrev = null;
 
   // ⚠️ 关键：把凭据放进内存，**不写 localStorage、不回显到任何输入框**。
   // 这样被邀请者在界面上、在控制台里都翻不到房主的云端配置。
   window.NET_INVITE.setPending(info);
 
   { const jc = $('joincCode'); if (jc) jc.textContent = String(info.code).toUpperCase(); }
-  $('joincName').value = loadPlayerName();
+  // 只回填**存过**的名字；没存过就留空吃 placeholder，点进去直接打字
+  $('joincName').value = (lsGet(LS_NAME) || '').trim();
+
+  // 邀请链接里带了玩法（2026-09-28 起）：进房前就把主题色切过去，
+  // 别让斗地主房间的邀请页顶着红心大战的红。
+  if (info.mode && RULES_BY_MODE[info.mode]) {
+    inviteChromePrev = document.body.dataset.mode || state.mode;
+    renderModeChrome(info.mode);
+  }
 
   const err = $('joincError');
   if (err) { err.hidden = true; err.textContent = ''; }
@@ -4614,7 +5508,8 @@ function handleInviteOnLoad() {
 async function acceptInvite() {
   const info = window.NET_INVITE.getPending();
   if (!info) return;
-  const name = ($('joincName').value || '').trim().slice(0, 10) || '玩家';
+  const name = ($('joincName').value || '').trim().slice(0, 10) || loadPlayerName();
+  inviteChromePrev = null;   // 进房后主题色由房间接管，不再需要还原
   SEAT_LABEL[0] = name;
   lsSet(LS_NAME, name);
   const me = state.players[0];
@@ -4640,6 +5535,8 @@ async function acceptInvite() {
 /** 被邀请者：放弃加入 → 清掉内存里的凭据，回主页 */
 function declineInvite() {
   window.NET_INVITE.clearPending();
+  // 邀请页可能临时切过主题色（斗地主房 → 黄），拒绝后必须还原本机玩法色
+  if (inviteChromePrev) { renderModeChrome(inviteChromePrev); inviteChromePrev = null; }
   showScreen('home');
   syncHomeCta();
   refreshOnlineStatus();
@@ -4818,6 +5715,7 @@ function initOnlineUI() {
     const v = ONLINE.getView();
     if (!ONLINE.isActive() || !v) { syncRejoinCta(); return; }
     if (v.phase === 'lobby') { showScreen('lobby'); renderLobby(); }
+    else if (v.mode === 'werewolf') { showScreen('werewolf'); renderWerewolf(); }
     else { showScreen('game'); renderOnlineTable(); }
   });
 
@@ -4833,6 +5731,23 @@ function initOnlineUI() {
   });
 
   $('btnStartOnline').addEventListener('click', onlineStartGame);
+
+  // 局内查看房间号（对局信息面板）：点一下复制
+  if ($('roomCodeChip')) {
+    $('roomCodeChip').addEventListener('click', async () => {
+      const room = ONLINE.getRoom ? ONLINE.getRoom() : null;
+      const code = (room && room.code) || ONLINE.session.code || '';
+      if (!code) return;
+      try {
+        await navigator.clipboard.writeText(code);
+        const chip = $('roomCodeChip');
+        chip.textContent = '已复制 ' + code;
+        setTimeout(() => { renderInfo(); }, 1200);
+      } catch (_) {
+        showToast('复制失败，房间号：' + code);
+      }
+    });
+  }
 
   /* ---- 扫码邀请（房主） ---- */
   if ($('btnInvite')) $('btnInvite').addEventListener('click', openInviteModal);
@@ -4865,7 +5780,150 @@ function initOnlineUI() {
     else if (t.id === 'lbSell') await ONLINE.updateSettings({ sell: t.value === '1' });
     else if (t.id === 'lbPass') await ONLINE.updateSettings({ passHearts: t.value === '1' });
     else if (t.id === 'lbDiff') await ONLINE.updateSettings({ aiDifficulty: t.value });
+    else if (t.id === 'lbWwSeats') {
+      await pushSeatCount(parseInt(t.value, 10));
+    } else if (t.id === 'lbWwMod') {
+      wwCfgEditing = false;
+      await pushWwConfig({ moderatorSeat: parseInt(t.value, 10) });
+    } else if (t.classList && t.classList.contains('ww-cfg-name')) {
+      const room = ONLINE.getRoom();
+      if (!room || room.mode !== 'werewolf') return;
+      const i = parseInt(t.dataset.wwCfgName, 10);
+      const cfg = JSON.parse(JSON.stringify((room.werewolf && room.werewolf.roleConfig) || []));
+      if (cfg[i]) cfg[i].name = String(t.value || '').trim() || cfg[i].key;
+      wwCfgEditing = false;
+      await pushWwConfig({ roleConfig: cfg });
+    }
   });
+
+  // 狼人杀角色池：+ / − / 删除 / 添加 / 按人数推荐
+  $('lobbySettings').addEventListener('click', async (e) => {
+    const room = ONLINE.getRoom();
+    if (!room || room.mode !== 'werewolf') return;
+    const cfgNow = () => JSON.parse(JSON.stringify((room.werewolf && room.werewolf.roleConfig) || []));
+
+    const step = e.target.closest('[data-ww-cfg-step]');
+    if (step) {
+      const i = parseInt(step.dataset.wwCfgStep, 10);
+      const d = parseInt(step.dataset.delta, 10) || 0;
+      const cfg = cfgNow();
+      if (cfg[i]) cfg[i].count = Math.max(0, (parseInt(cfg[i].count, 10) || 0) + d);
+      await pushWwConfig({ roleConfig: cfg });
+      return;
+    }
+    const del = e.target.closest('[data-ww-cfg-del]');
+    if (del) {
+      const cfg = cfgNow();
+      cfg.splice(parseInt(del.dataset.wwCfgDel, 10), 1);
+      await pushWwConfig({ roleConfig: cfg });
+      return;
+    }
+    if (e.target.closest('#lbWwAdd')) {
+      const cfg = cfgNow();
+      cfg.push({ key: 'custom' + (Date.now() % 1000000), name: '新角色', count: 1 });
+      await pushWwConfig({ roleConfig: cfg });
+      return;
+    }
+    if (e.target.closest('#lbWwSuggest')) {
+      await pushWwConfig({ autoSuggest: true });
+    }
+  });
+
+  // 编辑角色名期间锁住重绘，避免每敲一个字光标被抢走；失焦后解锁
+  $('lobbySettings').addEventListener('focusin', (e) => {
+    if (e.target.classList && e.target.classList.contains('ww-cfg-name')) wwCfgEditing = true;
+  });
+  $('lobbySettings').addEventListener('focusout', (e) => {
+    if (e.target.classList && e.target.classList.contains('ww-cfg-name')) {
+      setTimeout(() => { wwCfgEditing = false; }, 0);
+    }
+  });
+
+  /* ---- 狼人杀界面接线 ---- */
+  if ($('wwSend')) {
+    $('wwSend').addEventListener('click', () => wwSendMessage());
+    $('wwInput').addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') wwSendMessage();
+    });
+    // 主持人快捷口令：一条口令可能同时做三件事
+    //   ① 自动切昼夜（data-ww-phase）
+    //   ② 这一句按指定目标发出（data-ww-to，缺省走下拉）
+    //   ③ 发完把下拉焦点切走（data-ww-focus：'wolf' 落到该群体，'all' 切回全体）
+    $('wwPhrases').addEventListener('click', async (e) => {
+      const b = e.target.closest('[data-ww-phrase]');
+      if (!b) return;
+
+      const ph = b.dataset.wwPhase || '';
+      if (ph) {
+        const okp = await wwSetPhase(ph, true);
+        if (!okp) return;
+      }
+
+      // 口令的目标永远显式指定，绝不回退到下拉 —— 下拉是「下一句」的焦点，
+      //   拿它决定「这一句」发给谁就会串台（见 wwRenderPhrases 的说明）。
+      const toKey = b.dataset.wwTo || 'all';
+      const to = (toKey === 'all') ? { kind: 'all' } : { kind: 'role', role: toKey };
+      await wwSendMessage(b.dataset.wwPhrase, to);
+
+      // 焦点切换放在发话之后：渲染会保留下拉当前值（见 wwRenderTargets 的 cur 处理）
+      const focus = b.dataset.wwFocus || '';
+      if (focus) wwSetTarget(focus === 'all' ? 'all' : 'role:' + focus);
+    });
+    $('wwEnd').addEventListener('click', () => wwSetPhase('end'));
+    $('wwPlayers').addEventListener('click', async (e) => {
+      const aliveBtn = e.target.closest('[data-ww-alive]');
+      if (aliveBtn) {
+        const res = await ONLINE.wwSetAlive(
+          parseInt(aliveBtn.dataset.wwAlive, 10), aliveBtn.dataset.alive === '1');
+        if (!res || !res.ok) showToast((res && res.error) || '操作失败');
+        renderWerewolf();
+        return;
+      }
+      const revBtn = e.target.closest('[data-ww-reveal]');
+      if (revBtn) {
+        const res = await ONLINE.wwReveal(parseInt(revBtn.dataset.wwReveal, 10));
+        if (!res || !res.ok) showToast((res && res.error) || '操作失败');
+        renderWerewolf();
+      }
+    });
+    // 投票：玩家点候选人投票（动态按钮，用委托）
+    $('wwVoteBody').addEventListener('click', async (e) => {
+      const b = e.target.closest('[data-ww-vote]');
+      if (!b) return;
+      const res = await ONLINE.wwVoteCast(parseInt(b.dataset.wwVote, 10));
+      if (!res || !res.ok) showToast((res && res.error) || '投票失败');
+      renderWerewolf();
+    });
+    $('wwVoteStart').addEventListener('click', async () => {
+      const res = await ONLINE.wwVoteOpen('放逐投票');
+      if (!res || !res.ok) showToast((res && res.error) || '发起投票失败');
+      renderWerewolf();
+    });
+    $('wwVoteEnd').addEventListener('click', async () => {
+      const res = await ONLINE.wwVoteClose(true);
+      if (!res || !res.ok) showToast((res && res.error) || '结束投票失败');
+      renderWerewolf();
+    });
+    $('wwVoteCancelBtn').addEventListener('click', async () => {
+      const res = await ONLINE.wwVoteCancel();
+      if (!res || !res.ok) showToast((res && res.error) || '取消失败');
+      renderWerewolf();
+    });
+
+    // 胜负判定 + 下一局（按钮是动态生成的，用委托）
+    $('wwEndBody').addEventListener('click', async (e) => {
+      const pick = e.target.closest('[data-ww-winner]');
+      if (pick) { await wwPickWinner(pick.dataset.wwWinner); return; }
+      if (e.target.closest('#wwNextRound')) await wwNextRound();
+    });
+
+    $('wwBack').addEventListener('click', () => {
+      // 回主页但保留房间（「返回牌桌」按钮会亮起，随时能坐回去）
+      showScreen('home');
+      syncHomeCta();
+      refreshOnlineStatus();
+    });
+  }
 
   refreshOnlineStatus();
 }
@@ -4875,7 +5933,9 @@ function initOnlineUI() {
  * ============================================================ */
 const savedName = loadPlayerName();
 SEAT_LABEL[0] = savedName;
-$('playerName').value = savedName;
+// ⚠️ 输入框只回填**真正存过**的名字：没存过就留空吃 placeholder，
+//    用户点进去直接打字即可，不用先把占位的「玩家昵称」删掉（2026-09-28 反馈）。
+$('playerName').value = (lsGet(LS_NAME) || '').trim();
 $('playerNameEcho').textContent = savedName;
 // ⚠️ 必须把已保存的昵称同步给联机客户端。建房时 `seats[0].name` 取的就是
 //    `session.playerName`，漏掉这一步的话它一直是默认的「玩家」——
@@ -4889,6 +5949,8 @@ applyModeChrome();
 renderModeChrome();
 renderHistory();
 switchRulesTab('rule');
+// 调试开关：地址栏 ?peek=1 也能开（方便自动化测试直接抓到 AI 手牌）
+setPeek(lsGet(PEEK_LS) === '1' || /[?&]peek=1(?:&|$)/.test(location.search || ''));
 render();
 syncHomeCta();
 showScreen('home');
@@ -4929,6 +5991,11 @@ window.__game = {
   renderHintbar, hintState: () => ({ manual: hintManual, auto: hintAuto, kind: hintKind }),
   clearManualHint,          // 测试里清掉手工提示，好断言自动提示文案
   ddzHasBeat,               // 斗地主：我当前有没有能压过上一手的牌
+  // 调试：查看 AI 手牌（联机只下发张数，peekHand 会返回 null）
+  setPeek, peekHand, peekHands: () => [0, 1, 2, 3].map((i) => peekHand(i)),
+  peekOn: () => peekAI,
+  // 斗地主明牌（调试/测试用：可以直接打开弹窗或直接定夺）
+  openMingDialog, setDdzMing,
   // 联机
   syncStateFromView, renderOnlineTable, renderLobby, ONLINE,
   // 扫码邀请
